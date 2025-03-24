@@ -5,9 +5,11 @@ from PIL import Image
 import requests
 from fastapi import FastAPI
 from fastapi.responses import Response
-
 import modal
+import torch
+import diffusers
 
+from magic import Model
 
 diffusers_commit_sha = "81cf3b2f155f1de322079af28f625349ee21ec6b"
 
@@ -47,60 +49,31 @@ flux_image = (
 app = modal.App("flux", image=flux_image)
 web_app = FastAPI()
 
-with flux_image.imports():
-    import diffusers
-    import torch
-
-
 @app.cls(gpu="H100", timeout=3600, secrets=[modal.Secret.from_name("huggingface")])
-class Model:
+class ModalModel:
     @modal.enter()
     def enter(self):
-        self.pipe = diffusers.FluxPipeline.from_pretrained(
+        pipe = diffusers.FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16
         ).to("cuda")
+        self.model = Model(pipe)
 
     @modal.method()
     def inference(self, prompt: str) -> bytes:
-        print("Generating image...")
-        image = self.pipe(
-            prompt,
-            output_type="pil",
-            num_inference_steps=4,
-        ).images[0]
-
-        byte_stream = BytesIO()
-        image.save(byte_stream, format="JPEG")
-        return byte_stream.getvalue()
+        return self.model.inference(prompt)
 
     @modal.method()
     def style_transfer(self, image_url: str, prompt: str) -> bytes:
-        print("Downloading input image...")
-        response = requests.get(image_url)
-        init_image = Image.open(BytesIO(response.content))
-        
-        print("Applying style transfer...")
-        image = self.pipe(
-            prompt,
-            image=init_image,
-            output_type="pil",
-            num_inference_steps=4,
-            strength=0.75,  # Controls how much to preserve from the input image
-        ).images[0]
-
-        byte_stream = BytesIO()
-        image.save(byte_stream, format="JPEG")
-        return byte_stream.getvalue()
-
+        return self.model.style_transfer(image_url, prompt)
 
 @web_app.post("/generate")
 async def generate_image(prompt: str):
-    image_bytes = Model().inference.remote(prompt)
+    image_bytes = ModalModel().inference.remote(prompt)
     return Response(content=image_bytes, media_type="image/jpeg")
 
 @web_app.post("/style-transfer")
 async def style_transfer_endpoint(image_url: str, prompt: str):
-    image_bytes = Model().style_transfer.remote(image_url, prompt)
+    image_bytes = ModalModel().style_transfer.remote(image_url, prompt)
     return Response(content=image_bytes, media_type="image/jpeg")
 
 @app.serve(name="flux-api")
