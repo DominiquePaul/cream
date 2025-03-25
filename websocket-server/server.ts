@@ -72,6 +72,27 @@ app.get('/', (req, res) => {
   res.send('WebSocket server is running');
 });
 
+// Debug endpoint to check active streams
+app.get('/debug/streams', (req, res) => {
+  const streamsInfo = Array.from(streams.entries()).map(([id, stream]) => {
+    return {
+      id,
+      viewerCount: stream.viewers.size,
+      isActive: stream.broadcaster.readyState === WebSocket.OPEN,
+      framesReceived: socketStats.get(stream.broadcaster)?.framesReceived || 0,
+      framesSent: Array.from(stream.viewers).reduce((total, viewer) => {
+        return total + (socketStats.get(viewer)?.framesSent || 0);
+      }, 0)
+    };
+  });
+  
+  res.json({
+    activeStreams: streamsInfo,
+    totalStreams: streams.size,
+    totalConnections: wss.clients.size
+  });
+});
+
 // Create HTTP server
 const server = createServer(app);
 
@@ -104,6 +125,7 @@ wss.on('connection', (ws: WebSocket) => {
     for (const [streamId, stream] of streams.entries()) {
       if (stream.broadcaster === ws) {
         // Notify viewers that stream has ended
+        console.log(`Broadcaster disconnected from stream ${streamId}. Notifying ${stream.viewers.size} viewers.`);
         stream.viewers.forEach((viewer: WebSocket) => {
           if (viewer.readyState === WebSocket.OPEN) {
             try {
@@ -119,6 +141,12 @@ wss.on('connection', (ws: WebSocket) => {
         console.log(`Stream ended: ${streamId}`);
         streams.delete(streamId);
         break;
+      } else {
+        // Also remove this connection from viewers if it exists
+        if (stream.viewers.has(ws)) {
+          console.log(`Viewer disconnected from stream ${streamId}`);
+          stream.viewers.delete(ws);
+        }
       }
     }
   });
@@ -190,10 +218,12 @@ wss.on('connection', (ws: WebSocket) => {
         case 'frame': {
           // Validate frame data exists
           if (!data.streamId || !data.frame) {
+            console.error(`FRAME ERROR: Missing required properties. Has streamId: ${!!data.streamId}, Has frame: ${!!data.frame}`);
             throw new Error('Frame message missing required properties');
           }
           
-          console.log(`FRAME DEBUG: Received frame data for stream ${data.streamId}. Frame size: ${data.frame.length} bytes`);
+          const frameSize = data.frame.length;
+          console.log(`FRAME DEBUG: Received frame data for stream ${data.streamId}. Frame size: ${frameSize} bytes`);
           
           // Increment frames received counter
           const stats = socketStats.get(ws);
@@ -204,35 +234,79 @@ wss.on('connection', (ws: WebSocket) => {
           // Broadcast frame to all viewers
           const streamToBroadcast = streams.get(data.streamId);
           if (streamToBroadcast) {
+            // Verify this frame is coming from the broadcaster
+            if (streamToBroadcast.broadcaster !== ws) {
+              console.error(`Rejecting frame from non-broadcaster for stream ${data.streamId}`);
+              return;
+            }
+            
             const viewerCount = streamToBroadcast.viewers.size;
             console.log(`Received frame from broadcaster for stream ${data.streamId}. Viewers: ${viewerCount}. Total frames received: ${stats?.framesReceived || 0}`);
-            const frameData = JSON.stringify({
-              type: 'frame',
-              frame: data.frame,
-              timestamp: Date.now()
-            });
             
-            let viewersSent = 0;
+            if (viewerCount === 0) {
+              console.log(`No viewers for stream ${data.streamId}, skipping frame broadcast`);
+              return;
+            }
+            
+            // Clean up dead viewers before sending frames
+            let removedViewers = 0;
             streamToBroadcast.viewers.forEach((viewer: WebSocket) => {
-              if (viewer.readyState === WebSocket.OPEN) {
-                try {
-                  viewer.send(frameData);
-                  viewersSent++;
-                  
-                  // Increment frames sent counter for the viewer
-                  const viewerStats = socketStats.get(viewer);
-                  if (viewerStats) {
-                    viewerStats.framesSent++;
-                  }
-                } catch (err) {
-                  console.error(`Error sending frame to viewer: ${err instanceof Error ? err.message : err}`);
-                }
-              } else {
-                console.log(`Viewer socket not open, state: ${viewer.readyState}`);
+              if (viewer.readyState !== WebSocket.OPEN) {
+                streamToBroadcast.viewers.delete(viewer);
+                removedViewers++;
               }
             });
             
-            console.log(`FRAME DEBUG: Sent frame to ${viewersSent}/${viewerCount} viewers`);
+            if (removedViewers > 0) {
+              console.log(`Removed ${removedViewers} dead viewers from stream ${data.streamId}`);
+            }
+            
+            // Only proceed if we still have viewers
+            const finalViewerCount = streamToBroadcast.viewers.size;
+            if (finalViewerCount > 0) {
+              console.log(`FRAME DEBUG: Preparing to send frame to ${finalViewerCount} viewers`);
+              
+              try {
+                const frameData = JSON.stringify({
+                  type: 'frame',
+                  frame: data.frame,
+                  timestamp: Date.now()
+                });
+                
+                const framePayloadSize = frameData.length;
+                console.log(`FRAME DEBUG: Frame payload size: ${framePayloadSize} bytes`);
+                
+                let viewersSent = 0;
+                let viewersSkipped = 0;
+                
+                streamToBroadcast.viewers.forEach((viewer: WebSocket) => {
+                  if (viewer.readyState === WebSocket.OPEN) {
+                    try {
+                      console.log(`FRAME DEBUG: Sending frame to viewer, socket state: ${viewer.readyState}`);
+                      viewer.send(frameData);
+                      viewersSent++;
+                      
+                      // Increment frames sent counter for the viewer
+                      const viewerStats = socketStats.get(viewer);
+                      if (viewerStats) {
+                        viewerStats.framesSent++;
+                      }
+                    } catch (err) {
+                      console.error(`Error sending frame to viewer: ${err instanceof Error ? err.message : err}`);
+                    }
+                  } else {
+                    viewersSkipped++;
+                    console.log(`Viewer socket not open, state: ${viewer.readyState}`);
+                  }
+                });
+                
+                console.log(`FRAME DEBUG: Sent frame to ${viewersSent}/${finalViewerCount} viewers, skipped ${viewersSkipped}`);
+              } catch (err) {
+                console.error(`FRAME ERROR: Failed to prepare or send frame: ${err instanceof Error ? err.message : err}`);
+              }
+            } else {
+              console.log(`FRAME DEBUG: No active viewers for stream ${data.streamId} after cleanup`);
+            }
           } else {
             console.log(`Received frame for non-existent stream ${data.streamId}`);
           }
