@@ -193,6 +193,8 @@ wss.on('connection', (ws: WebSocket) => {
             throw new Error('Frame message missing required properties');
           }
           
+          console.log(`FRAME DEBUG: Received frame data for stream ${data.streamId}. Frame size: ${data.frame.length} bytes`);
+          
           // Increment frames received counter
           const stats = socketStats.get(ws);
           if (stats) {
@@ -210,17 +212,27 @@ wss.on('connection', (ws: WebSocket) => {
               timestamp: Date.now()
             });
             
+            let viewersSent = 0;
             streamToBroadcast.viewers.forEach((viewer: WebSocket) => {
               if (viewer.readyState === WebSocket.OPEN) {
-                viewer.send(frameData);
-                
-                // Increment frames sent counter for the viewer
-                const viewerStats = socketStats.get(viewer);
-                if (viewerStats) {
-                  viewerStats.framesSent++;
+                try {
+                  viewer.send(frameData);
+                  viewersSent++;
+                  
+                  // Increment frames sent counter for the viewer
+                  const viewerStats = socketStats.get(viewer);
+                  if (viewerStats) {
+                    viewerStats.framesSent++;
+                  }
+                } catch (err) {
+                  console.error(`Error sending frame to viewer: ${err instanceof Error ? err.message : err}`);
                 }
+              } else {
+                console.log(`Viewer socket not open, state: ${viewer.readyState}`);
               }
             });
+            
+            console.log(`FRAME DEBUG: Sent frame to ${viewersSent}/${viewerCount} viewers`);
           } else {
             console.log(`Received frame for non-existent stream ${data.streamId}`);
           }
