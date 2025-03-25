@@ -17,6 +17,9 @@ app.use(express.json());
 // In-memory storage for active streams
 const streams = new Map();
 
+// Counters for frames
+const socketStats = new WeakMap();
+
 // Simple health check endpoint
 app.get('/', (req, res) => {
   res.send('WebSocket server is running');
@@ -31,6 +34,12 @@ const wss = new WebSocketServer({ server });
 // Handle WebSocket connections
 wss.on('connection', (ws) => {
   console.log('Client connected');
+  
+  // Initialize stats for this socket
+  socketStats.set(ws, {
+    framesReceived: 0,
+    framesSent: 0
+  });
 
   ws.on('message', (message) => {
     try {
@@ -73,9 +82,15 @@ wss.on('connection', (ws) => {
           break;
 
         case 'frame':
+          // Increment frames received counter
+          const stats = socketStats.get(ws);
+          stats.framesReceived++;
+          
           // Broadcast frame to all viewers
           const streamToBroadcast = streams.get(data.streamId);
           if (streamToBroadcast) {
+            const viewerCount = streamToBroadcast.viewers.size;
+            console.log(`Received frame from broadcaster for stream ${data.streamId}. Viewers: ${viewerCount}. Total frames received: ${stats.framesReceived}`);
             const frameData = JSON.stringify({
               type: 'frame',
               frame: data.frame,
@@ -85,8 +100,16 @@ wss.on('connection', (ws) => {
             streamToBroadcast.viewers.forEach(viewer => {
               if (viewer.readyState === ws.OPEN) {
                 viewer.send(frameData);
+                
+                // Increment frames sent counter for the viewer
+                const viewerStats = socketStats.get(viewer);
+                if (viewerStats) {
+                  viewerStats.framesSent++;
+                }
               }
             });
+          } else {
+            console.log(`Received frame for non-existent stream ${data.streamId}`);
           }
           break;
       }
@@ -100,7 +123,9 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log('Client disconnected');
+    // Log frame stats on disconnect
+    const stats = socketStats.get(ws);
+    console.log(`Client disconnected. Frames received: ${stats?.framesReceived || 0}, Frames sent: ${stats?.framesSent || 0}`);
     
     // Clean up streams when broadcaster disconnects
     for (const [streamId, stream] of streams.entries()) {
