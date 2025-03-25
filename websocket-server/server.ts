@@ -9,6 +9,33 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Memory usage monitoring
+setInterval(() => {
+  const memoryUsage = process.memoryUsage();
+  console.log(`Memory usage: ${JSON.stringify({
+    rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
+    heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
+    heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`
+  })}`);
+}, 60000); // Log every minute
+
+// Graceful shutdown handlers
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
 // Setup Express app
 const app = express();
 app.use(cors());
