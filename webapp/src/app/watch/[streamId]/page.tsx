@@ -18,6 +18,16 @@ export default function WatchPage() {
   const [imageData, setImageData] = useState<string | null>(null);
   const router = useRouter();
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectedRef = useRef(false);
+  const framesReceivedRef = useRef(0);
+  
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
+  
+  useEffect(() => {
+    framesReceivedRef.current = framesReceived;
+  }, [framesReceived]);
   
   // Function to establish WebSocket connection
   const connectWebSocket = useCallback(() => {
@@ -80,7 +90,7 @@ export default function WatchPage() {
         } 
         else if (data.type === 'frame') {
           // Update status on first frame received
-          if (framesReceived === 0) {
+          if (framesReceivedRef.current === 0) {
             setStatus("Receiving frames");
             console.log("WATCH DEBUG: Received first frame!");
           }
@@ -91,7 +101,7 @@ export default function WatchPage() {
           }
           
           const frameSize = data.frame.length;
-          console.log(`WATCH DEBUG: Received frame #${framesReceived + 1}, size: ${frameSize} bytes`);
+          console.log(`WATCH DEBUG: Received frame #${framesReceivedRef.current + 1}, size: ${frameSize} bytes`);
           
           // Log data.frame prefix to check if it's valid data
           console.log(`WATCH DEBUG: Frame data prefix: ${data.frame.substring(0, 50)}...`);
@@ -104,15 +114,16 @@ export default function WatchPage() {
           
           // Update image with received frame
           setImageData(data.frame);
-          setFramesReceived(prev => prev + 1);
+          const newFrameCount = framesReceivedRef.current + 1;
+          setFramesReceived(newFrameCount);
           
           // Calculate and display latency
           if (data.timestamp) {
             const latency = Date.now() - data.timestamp;
             setLastFrameTimestamp(latency);
             
-            if (framesReceived % 10 === 0) {
-              console.log(`Received frame #${framesReceived}, latency: ${latency}ms`);
+            if (newFrameCount % 10 === 0) {
+              console.log(`Received frame #${newFrameCount}, latency: ${latency}ms`);
             }
           }
         } 
@@ -145,7 +156,7 @@ export default function WatchPage() {
       setWsConnected(false);
       
       // Only change connected state if we were previously connected
-      if (connected) {
+      if (connectedRef.current) {
         setConnected(false);
         setStatus("Disconnected from server");
       }

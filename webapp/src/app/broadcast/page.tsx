@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 export default function BroadcastPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,6 +17,88 @@ export default function BroadcastPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const isStreamingRef = useRef(false);
   const currentStreamIdRef = useRef<string | null>(null);
+
+  // Define sendFrames with useCallback before using it in useEffect
+  const sendFrames = useCallback(() => {
+    // Get the current streamId from the ref instead of the state
+    const currentStreamId = currentStreamIdRef.current;
+    
+    if (!isStreamingRef.current || !currentStreamId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.log("Not streaming, or WebSocket not ready", {
+        isStreamingRef: isStreamingRef.current,
+        currentStreamIdRef: currentStreamIdRef.current,
+        wsReadyState: wsRef.current?.readyState
+      });
+      
+      // If WebSocket is closed but we're still supposed to be streaming, retry in a bit
+      if (isStreamingRef.current && currentStreamId && (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)) {
+        console.log("WebSocket disconnected during streaming, will retry frames in 1s");
+        setTimeout(sendFrames, 1000);
+      }
+      return;
+    }
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    if (!video || !canvas) {
+      console.error("Video or canvas element not found");
+      return;
+    }
+    
+    // Check if video is actually playing
+    if (video.readyState < 2 || video.paused || video.ended) {
+      console.log("Video not ready yet, retrying in 500ms...", {
+        readyState: video.readyState,
+        paused: video.paused,
+        ended: video.ended
+      });
+      setTimeout(sendFrames, 500);
+      return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      console.error("Could not get canvas context");
+      return;
+    }
+    
+    // Ensure canvas dimensions match video
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      console.log(`Updating canvas dimensions to ${video.videoWidth}x${video.videoHeight}`);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+    
+    try {
+      // Draw video frame to canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Get data URL from canvas
+      const frame = canvas.toDataURL('image/jpeg', 0.7);
+      
+      // Send frame data
+      console.log(`FRAME DEBUG: Sending frame #${frameCounterRef.current}, size: ${Math.round(frame.length / 1024)}KB, stream: ${currentStreamId}`);
+      wsRef.current.send(JSON.stringify({
+        type: 'frame',
+        streamId: currentStreamId,
+        frame: frame,
+        frameNumber: frameCounterRef.current++
+      }));
+      
+      // Log every 10 frames
+      if (frameCounterRef.current % 10 === 0) {
+        console.log(`Sent frame #${frameCounterRef.current}, size: ${Math.round(frame.length / 1024)}KB`);
+        setStatus(`Streaming: Sent ${frameCounterRef.current} frames`);
+      }
+      
+      // Request next frame
+      requestAnimationFrameRef.current = requestAnimationFrame(sendFrames);
+    } catch (err) {
+      console.error("Error sending frame:", err);
+      setError("Failed to send frame: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, []);
 
   // WebSocket setup
   useEffect(() => {
@@ -136,7 +218,7 @@ export default function BroadcastPage() {
       setWsConnected(false);
       
       // Only stop streaming if we were actively streaming
-      if (isStreaming) {
+      if (isStreamingRef.current) {
         setIsStreaming(false);
       }
     };
@@ -149,7 +231,7 @@ export default function BroadcastPage() {
       }
       ws.close();
     };
-  }, []);
+  }, [sendFrames]);
 
   const startStream = async () => {
     setError(null);
@@ -230,87 +312,6 @@ export default function BroadcastPage() {
     setStreamId(null);
     currentStreamIdRef.current = null;
     setStatus("Stream stopped");
-  };
-
-  const sendFrames = () => {
-    // Get the current streamId from the ref instead of the state
-    const currentStreamId = currentStreamIdRef.current;
-    
-    if (!isStreamingRef.current || !currentStreamId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.log("Not streaming, or WebSocket not ready", {
-        isStreamingRef: isStreamingRef.current,
-        currentStreamIdRef: currentStreamIdRef.current,
-        wsReadyState: wsRef.current?.readyState
-      });
-      
-      // If WebSocket is closed but we're still supposed to be streaming, retry in a bit
-      if (isStreamingRef.current && currentStreamId && (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)) {
-        console.log("WebSocket disconnected during streaming, will retry frames in 1s");
-        setTimeout(sendFrames, 1000);
-      }
-      return;
-    }
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    
-    if (!video || !canvas) {
-      console.error("Video or canvas element not found");
-      return;
-    }
-    
-    // Check if video is actually playing
-    if (video.readyState < 2 || video.paused || video.ended) {
-      console.log("Video not ready yet, retrying in 500ms...", {
-        readyState: video.readyState,
-        paused: video.paused,
-        ended: video.ended
-      });
-      setTimeout(sendFrames, 500);
-      return;
-    }
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.error("Could not get canvas context");
-      return;
-    }
-    
-    // Ensure canvas dimensions match video
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      console.log(`Updating canvas dimensions to ${video.videoWidth}x${video.videoHeight}`);
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-    
-    try {
-      // Draw video frame to canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // Get data URL from canvas
-      const frame = canvas.toDataURL('image/jpeg', 0.7);
-      
-      // Send frame data
-      console.log(`FRAME DEBUG: Sending frame #${frameCounterRef.current}, size: ${Math.round(frame.length / 1024)}KB, stream: ${currentStreamId}`);
-      wsRef.current.send(JSON.stringify({
-        type: 'frame',
-        streamId: currentStreamId,
-        frame: frame,
-        frameNumber: frameCounterRef.current++
-      }));
-      
-      // Log every 10 frames
-      if (frameCounterRef.current % 10 === 0) {
-        console.log(`Sent frame #${frameCounterRef.current}, size: ${Math.round(frame.length / 1024)}KB`);
-        setStatus(`Streaming: Sent ${frameCounterRef.current} frames`);
-      }
-      
-      // Request next frame
-      requestAnimationFrameRef.current = requestAnimationFrame(sendFrames);
-    } catch (err) {
-      console.error("Error sending frame:", err);
-      setError("Failed to send frame: " + (err instanceof Error ? err.message : String(err)));
-    }
   };
 
   return (
