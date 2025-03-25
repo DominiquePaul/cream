@@ -1,0 +1,12 @@
+Project description:
+
+I am building a website where users can create stylised livestreams that others can view. Users can start stream via their webcam on a website or via a raspberry pi. Other users can then watch this stream on a public URL. What differentiates this product is that the images/video stream uploaded is stylised using an img2img diffusion model. The idea is that this would set up at a home party, a bar, or any other place for people to interact with the stream of themselves or to creatively share whats happening with others.
+
+
+Main challenges:
+- Getting a diffusion model to adhere to the structure of the original image
+- Get the model to run sufficiently fast such that there is at least 1 FPS
+- Keep the lag of the stream below 5 seconds
+- Setting up the streaming infrastructure so that users can start and stop new streams
+
+
