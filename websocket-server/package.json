@@ -4,9 +4,10 @@
   "description": "WebSocket server for streaming app",
   "type": "module",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+"scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node server.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -14,9 +15,14 @@
     "ws": "^8.13.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "@types/ws": "^8.18.0",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
   },
   "engines": {
     "node": ">=18.0.0"
   }
-} 
+}
