@@ -1,4 +1,0 @@
-I have figured out the inference part in a simple script. Now Im wondering how I can set up the streaming in terms of infrastructure. 
-
-I need something that is compatible with an upload from (a) a nextjs web app but also (b) a python script running locally. Somehow I need to then process them with an ML model and then another part of the nextjs app needs to be able to read them. 
-

@@ -22,7 +22,11 @@ export default function Home() {
         // Use the environment variable for WebSocket URL
         const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://cream-websocket-server.onrender.com';
         
-        const ws = new WebSocket(wsUrl);
+        // Create a temporary viewer ID for listing streams
+        const tempId = "listing_" + Math.random().toString(36).substring(2, 15);
+        const fullWsUrl = `${wsUrl}/viewer/${tempId}`;
+        
+        const ws = new WebSocket(fullWsUrl);
         
         ws.onopen = () => {
           ws.send(JSON.stringify({
@@ -60,10 +64,10 @@ export default function Home() {
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100">
       <div className="container mx-auto px-4 py-16 max-w-6xl">
         <div className="flex flex-col items-center text-center mb-16">
-          <h1 className="text-5xl font-bold text-gray-900 mb-6">Creative Livestreaming</h1>
+          <h1 className="text-5xl font-bold text-gray-900 mb-6">AI-Stylized Livestreaming</h1>
           <p className="text-xl text-gray-600 max-w-3xl">
-            Create AI-stylized livestreams that transform your webcam feed into artistic creations in real-time.
-            Share your stream with others and experience a new way to connect.
+            Create AI-stylized livestreams that transform your webcam feed into artistic creations using a diffusion model.
+            Each frame is processed with AI which takes approximately 5 seconds - perfect for creative and artistic streams.
           </p>
         </div>
 
@@ -72,7 +76,7 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Start Broadcasting</CardTitle>
               <CardDescription>
-                Create your own stylized livestream using your webcam
+                Create your own AI-stylized livestream using your webcam
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -93,8 +97,14 @@ export default function Home() {
                 </svg>
               </div>
               <p className="mt-4 text-gray-600">
-                Launch your own stream and share it with friends, family, or anyone around the world.
+                Launch your own AI-processed stream and share it with friends, family, or anyone around the world.
+                Each frame is transformed with a diffusion model.
               </p>
+              <div className="mt-2 p-2 bg-blue-50 rounded-md">
+                <p className="text-sm text-gray-700">
+                  <strong>Note:</strong> Processing takes ~5 seconds per frame for artistic quality
+                </p>
+              </div>
             </CardContent>
             <CardFooter>
               <Link href="/broadcast" className="w-full">
@@ -107,7 +117,7 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Watch Streams</CardTitle>
               <CardDescription>
-                View live streams created by others
+                View AI-transformed live streams created by others
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -189,7 +199,7 @@ export default function Home() {
                 <span className="text-blue-600 font-bold">1</span>
               </div>
               <h3 className="font-bold text-lg mb-2">Start a Stream</h3>
-              <p className="text-gray-600">Click &quot;Start Streaming&quot; and grant camera access to begin your creative broadcast</p>
+              <p className="text-gray-600">Click &quot;Start Streaming&quot; and grant camera access to begin your creative AI-processed broadcast</p>
             </div>
             
             <div className="p-6 bg-white rounded-lg shadow">
@@ -197,7 +207,7 @@ export default function Home() {
                 <span className="text-blue-600 font-bold">2</span>
               </div>
               <h3 className="font-bold text-lg mb-2">Share Your Stream</h3>
-              <p className="text-gray-600">Copy your unique stream URL and share it with friends and followers</p>
+              <p className="text-gray-600">Copy your unique stream URL and share it with friends to let them see your AI-transformed video</p>
             </div>
             
             <div className="p-6 bg-white rounded-lg shadow">
@@ -205,7 +215,7 @@ export default function Home() {
                 <span className="text-blue-600 font-bold">3</span>
               </div>
               <h3 className="font-bold text-lg mb-2">Watch Streams</h3>
-              <p className="text-gray-600">Enter a stream ID or click on an active stream to watch others&apos; creative broadcasts</p>
+              <p className="text-gray-600">Enter a stream ID or click on an active stream to watch others&apos; AI-stylized creative broadcasts</p>
             </div>
           </div>
         </div>

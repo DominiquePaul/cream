@@ -16,6 +16,9 @@ export default function WatchPage() {
   const [lastFrameTimestamp, setLastFrameTimestamp] = useState<number | null>(null);
   const [framesReceived, setFramesReceived] = useState(0);
   const [imageData, setImageData] = useState<string | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<string>("");
+  const [lastFrameTime, setLastFrameTime] = useState<Date | null>(null);
+  const [aspectRatio, setAspectRatio] = useState("56.25%"); // Default 16:9 (9/16 * 100)
   const router = useRouter();
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const connectedRef = useRef(false);
@@ -47,8 +50,11 @@ export default function WatchPage() {
     // Use the environment variable for WebSocket URL
     const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
     
-    console.log(`Connecting to WebSocket at: ${wsUrl}`);
-    const ws = new WebSocket(wsUrl);
+    // Format the URL with the proper path pattern for Modal
+    const fullWsUrl = `${wsUrl}/viewer/${streamId}`;
+    
+    console.log(`Connecting to WebSocket at: ${fullWsUrl}`);
+    const ws = new WebSocket(fullWsUrl);
     wsRef.current = ws;
 
     const pingInterval = setInterval(() => {
@@ -66,16 +72,9 @@ export default function WatchPage() {
       setStatus("Connected, joining stream...");
       setWsConnected(true);
       
-      // Request to join stream
-      try {
-        ws.send(JSON.stringify({
-          type: 'join_stream',
-          streamId: streamId
-        }));
-      } catch (err) {
-        console.error("Error joining stream:", err);
-        setError("Failed to join stream: " + (err instanceof Error ? err.message : String(err)));
-      }
+      // No need to send join_stream message - the path parameters handle this
+      setConnected(true);
+      setStatus("Connected to stream. Waiting for frames...");
     };
     
     ws.onmessage = (event) => {
@@ -83,15 +82,23 @@ export default function WatchPage() {
         const data = JSON.parse(event.data);
         console.log("WATCH DEBUG: Received message type:", data.type);
         
+        // We may not get a joined_stream message with the Modal app
+        // The connection is already established by connecting to the correct path
         if (data.type === 'joined_stream') {
           console.log(`Successfully joined stream: ${data.streamId}`);
           setConnected(true);
           setStatus("Connected to stream. Waiting for frames...");
         } 
         else if (data.type === 'frame') {
+          // Make sure we're marked as connected when receiving frames
+          if (!connectedRef.current) {
+            setConnected(true);
+            console.log(`Implicitly joined stream by receiving frames`);
+          }
+          
           // Update status on first frame received
           if (framesReceivedRef.current === 0) {
-            setStatus("Receiving frames");
+            setStatus("Receiving AI-processed frames");
             console.log("WATCH DEBUG: Received first frame!");
           }
           
@@ -112,8 +119,29 @@ export default function WatchPage() {
             return;
           }
           
+          // Calculate time since last frame
+          const now = new Date();
+          if (lastFrameTime) {
+            const timeSinceLastFrame = (now.getTime() - lastFrameTime.getTime()) / 1000;
+            setProcessingStatus(`Frame rate: ${timeSinceLastFrame.toFixed(1)}s per frame`);
+          }
+          setLastFrameTime(now);
+          
           // Update image with received frame
           setImageData(data.frame);
+          
+          // Update aspect ratio from first frame (or when dimensions change)
+          // We need to create a temporary image to get the dimensions
+          if (data.frame.startsWith('data:image')) {
+            const img = new window.Image();
+            img.onload = () => {
+              const ratio = (img.height / img.width) * 100;
+              setAspectRatio(`${ratio}%`);
+              console.log(`Set aspect ratio to ${ratio}% based on image dimensions ${img.width}x${img.height}`);
+            };
+            img.src = data.frame;
+          }
+          
           const newFrameCount = framesReceivedRef.current + 1;
           setFramesReceived(newFrameCount);
           
@@ -126,7 +154,16 @@ export default function WatchPage() {
               console.log(`Received frame #${newFrameCount}, latency: ${latency}ms`);
             }
           }
+          
+          // If this was a processed frame, show that information
+          if (data.processed) {
+            setProcessingStatus("AI-processed frame");
+          }
         } 
+        else if (data.type === 'processing_update') {
+          // Show processing status updates
+          setProcessingStatus(data.status || "Processing frame...");
+        }
         else if (data.type === 'stream_ended') {
           console.log("Stream has ended");
           setStatus("Stream has ended");
@@ -186,7 +223,7 @@ export default function WatchPage() {
         ws.close();
       }
     };
-  }, [streamId]);
+  }, [streamId, lastFrameTime]);
   
   // Set up the WebSocket connection on mount or streamId change
   useEffect(() => {
@@ -209,16 +246,22 @@ export default function WatchPage() {
     <div className="container flex items-center justify-center min-h-screen py-10">
       <Card className="w-full max-w-4xl">
         <CardHeader>
-          <CardTitle>Watching Stream</CardTitle>
+          <CardTitle>Watching AI-Stylized Stream</CardTitle>
           <CardDescription>
             Stream ID: {streamId}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="relative aspect-video rounded-md overflow-hidden bg-black flex items-center justify-center">
+          <div 
+            className="relative rounded-md overflow-hidden bg-black flex items-center justify-center"
+            style={{ 
+              paddingTop: aspectRatio, // Dynamic aspect ratio
+              position: "relative" 
+            }}
+          >
             {connected ? (
               imageData ? (
-                <div className="relative w-full h-full">
+                <div className="absolute inset-0 w-full h-full">
                   <Image 
                     src={imageData}
                     alt="Live stream"
@@ -226,11 +269,17 @@ export default function WatchPage() {
                     style={{ objectFit: 'contain' }}
                     priority
                     unoptimized
+                    width={0}
+                    height={0}
                   />
+                  <div className="absolute bottom-2 left-2 bg-black/70 text-white px-3 py-1 rounded-md text-sm">
+                    {processingStatus || "AI-processed stream"}
+                  </div>
                 </div>
               ) : (
                 <div className="text-white text-center p-8">
                   <p className="text-xl">Waiting for stream data...</p>
+                  <p className="text-sm mt-2">Each frame is processed with AI stylization which takes ~5 seconds</p>
                 </div>
               )
             ) : (
@@ -244,6 +293,7 @@ export default function WatchPage() {
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
             <p className="text-sm font-medium">Status: {status}</p>
             <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
+            <p className="text-sm">Note: Frames are processed with AI diffusion (~5 seconds per frame)</p>
             {connected && (
               <>
                 <p className="text-sm">Frames received: {framesReceived}</p>
