@@ -1,0 +1,13 @@
+I have figured out the inference part in a simple script. Now Im wondering how I can set up the streaming in terms of infrastructure. 
+
+I need something that is compatible with an upload from (a) a nextjs web app but also (b) a python script running locally. Somehow I need to then process them with an ML model and then another part of the nextjs app needs to be able to read them. 
+
+
+
+- I have a nextjs app that allows users to start a livestream. 
+- Right now it sends the webcam frames to a websocket server (code of the socker server shown). 
+- I would like to process frames with a ML model (img2img diffusion model) and then send the back to websocket server so stream viewers see these frames instead of the original ones. 
+- One constraint is that the ML model will be a bit slow. It takes 5 seconds to process a single frame. 
+
+How can I best set this up to ensure: 
+- that the lag doesnt increase over time? I don't want to process all frames, but only the most recent one after the GPU has finished processing the previous one. (I'm kind of flexible on this requirement)
