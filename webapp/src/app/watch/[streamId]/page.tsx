@@ -26,6 +26,9 @@ export default function WatchPage() {
   const connectedRef = useRef(false);
   const framesReceivedRef = useRef(0);
   const frameTimestampsRef = useRef<Date[]>([]);
+  const [stylePrompt, setStylePrompt] = useState<string>("Default style");
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
     connectedRef.current = connected;
@@ -78,6 +81,17 @@ export default function WatchPage() {
       // No need to send join_stream message - the path parameters handle this
       setConnected(true);
       setStatus("Connected to stream. Waiting for frames...");
+      
+      // Request current style prompt
+      try {
+        ws.send(JSON.stringify({
+          type: 'get_style_prompt',
+          streamId: streamId
+        }));
+        console.log("Requested current style prompt");
+      } catch (err) {
+        console.error("Error requesting style prompt:", err);
+      }
     };
     
     ws.onmessage = (event) => {
@@ -180,10 +194,26 @@ export default function WatchPage() {
           if (data.processed) {
             setProcessingStatus("AI-processed frame");
           }
+          
+          // Update style prompt if included in the frame data
+          if (data.style_prompt) {
+            setStylePrompt(data.style_prompt);
+          }
         } 
         else if (data.type === 'processing_update') {
           // Show processing status updates
           setProcessingStatus(data.status || "Processing frame...");
+        }
+        else if (data.type === 'style_updated') {
+          // Handle style updates from the broadcaster
+          console.log("Style updated by broadcaster:", data.prompt);
+          setStylePrompt(data.prompt);
+          setStatus(`Style updated: "${data.prompt}"`);
+          
+          // Set a timeout to revert the status after a few seconds
+          setTimeout(() => {
+            setStatus("Receiving AI-processed frames");
+          }, 3000);
         }
         else if (data.type === 'stream_ended') {
           console.log("Stream has ended");
@@ -301,112 +331,231 @@ export default function WatchPage() {
     router.push('/');
   };
 
+  const toggleFullScreen = () => {
+    if (!fullscreenContainerRef.current) return;
+    
+    if (!isFullScreen) {
+      if (fullscreenContainerRef.current.requestFullscreen) {
+        fullscreenContainerRef.current.requestFullscreen()
+          .then(() => setIsFullScreen(true))
+          .catch(err => console.error("Error attempting to enable fullscreen:", err));
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen()
+          .then(() => setIsFullScreen(false))
+          .catch(err => console.error("Error attempting to exit fullscreen:", err));
+      }
+    }
+  };
+
+  // Handle fullscreen change events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   return (
-    <div className="container flex items-center justify-center min-h-screen py-10">
-      <Card className="w-full max-w-4xl">
-        <CardHeader>
-          <CardTitle>Watching AI-Stylized Stream</CardTitle>
-          <CardDescription>
-            Stream ID: {streamId}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div 
-            className="relative rounded-md overflow-hidden bg-black flex items-center justify-center"
-            style={{ 
-              paddingTop: aspectRatio, // Dynamic aspect ratio
-              position: "relative" 
-            }}
-          >
-            {connected ? (
-              imageData || nextImageData ? (
-                <div className="absolute inset-0 w-full h-full">
-                  {nextImageData && (
-                    <Image 
-                      src={nextImageData}
-                      alt="Live stream"
-                      fill
-                      style={{ 
-                        objectFit: 'contain',
-                        opacity: imageLoaded ? 1 : 0,
-                        transition: 'opacity 0.3s ease-in-out'
-                      }}
-                      priority
-                      unoptimized
-                      width={0}
-                      height={0}
-                      onLoad={() => {
-                        setImageLoaded(true);
-                        setImageData(nextImageData);
-                      }}
-                    />
-                  )}
-                  {imageData && nextImageData !== imageData && (
-                    <Image 
-                      src={imageData}
-                      alt="Previous frame"
-                      fill
-                      style={{ 
-                        objectFit: 'contain',
-                        opacity: nextImageData && imageLoaded ? 0 : 1,
-                        transition: 'opacity 0.3s ease-in-out'
-                      }}
-                      priority
-                      unoptimized
-                      width={0}
-                      height={0}
-                    />
-                  )}
-                  <div className="absolute bottom-2 left-2 bg-black/70 text-white px-3 py-1 rounded-md text-sm">
-                    {processingStatus || "AI-processed stream"}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-white text-center p-8">
-                  <p className="text-xl">Waiting for stream data...</p>
-                  <p className="text-sm mt-2">Each frame is processed with AI stylization which takes ~5 seconds</p>
-                </div>
-              )
-            ) : (
-              <div className="text-white text-center p-8">
-                <p className="text-xl">{status}</p>
-                {error && <p className="text-red-400 mt-2">{error}</p>}
+    <>
+      {isFullScreen && (
+        <div 
+          ref={fullscreenContainerRef}
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+        >
+          {connected && (imageData || nextImageData) && (
+            <div className="absolute inset-0 w-full h-full">
+              {nextImageData && (
+                <Image 
+                  src={nextImageData}
+                  alt="Live stream"
+                  fill
+                  style={{ 
+                    objectFit: 'contain',
+                    opacity: imageLoaded ? 1 : 0,
+                    transition: 'opacity 0.3s ease-in-out'
+                  }}
+                  priority
+                  unoptimized
+                  width={0}
+                  height={0}
+                  onLoad={() => {
+                    setImageLoaded(true);
+                    setImageData(nextImageData);
+                  }}
+                />
+              )}
+              {imageData && nextImageData !== imageData && (
+                <Image 
+                  src={imageData}
+                  alt="Previous frame"
+                  fill
+                  style={{ 
+                    objectFit: 'contain',
+                    opacity: nextImageData && imageLoaded ? 0 : 1,
+                    transition: 'opacity 0.3s ease-in-out'
+                  }}
+                  priority
+                  unoptimized
+                  width={0}
+                  height={0}
+                />
+              )}
+              <div className="absolute bottom-2 left-2 bg-black/70 text-white px-3 py-1 rounded-md text-sm">
+                {processingStatus || "AI-processed stream"}
               </div>
-            )}
-          </div>
-          
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
-            <p className="text-sm font-medium">Status: {status}</p>
-            <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
-            <p className="text-sm">Note: Frames are processed with AI diffusion (~5 seconds per frame)</p>
-            {connected && (
-              <>
-                <p className="text-sm">Frames received: {framesReceived}</p>
-                {lastFrameTimestamp !== null && (
-                  <p className="text-sm">Current latency: {lastFrameTimestamp}ms</p>
-                )}
-              </>
-            )}
-          </div>
-          
-          {error && (
-            <div className="flex space-x-4">
+              
               <button
-                onClick={handleRetry}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                onClick={toggleFullScreen}
+                className="absolute top-2 right-2 bg-black/70 text-white p-2 rounded-md hover:bg-black/90 transition-colors"
+                aria-label="Exit fullscreen"
               >
-                Retry Connection
-              </button>
-              <button
-                onClick={handleBack}
-                className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
-              >
-                Back to Home
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
+                  <path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
+                  <path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
+                  <path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
+                </svg>
               </button>
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      )}
+      
+      <div className={`container mx-auto px-2 flex items-center justify-center min-h-screen py-10 ${isFullScreen ? 'hidden' : ''}`}>
+        <Card className="w-full max-w-4xl">
+          <CardHeader>
+            <CardTitle>Watching AI-Stylized Stream</CardTitle>
+            <CardDescription>
+              Stream ID: {streamId}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div 
+              ref={!isFullScreen ? fullscreenContainerRef : null}
+              className="relative rounded-md overflow-hidden bg-black flex items-center justify-center"
+              style={{ 
+                paddingTop: aspectRatio, // Dynamic aspect ratio
+                position: "relative"
+              }}
+            >
+              {connected ? (
+                imageData || nextImageData ? (
+                  <div className="absolute inset-0 w-full h-full">
+                    {nextImageData && (
+                      <Image 
+                        src={nextImageData}
+                        alt="Live stream"
+                        fill
+                        style={{ 
+                          objectFit: 'contain',
+                          opacity: imageLoaded ? 1 : 0,
+                          transition: 'opacity 0.3s ease-in-out'
+                        }}
+                        priority
+                        unoptimized
+                        width={0}
+                        height={0}
+                        onLoad={() => {
+                          setImageLoaded(true);
+                          setImageData(nextImageData);
+                        }}
+                      />
+                    )}
+                    {imageData && nextImageData !== imageData && (
+                      <Image 
+                        src={imageData}
+                        alt="Previous frame"
+                        fill
+                        style={{ 
+                          objectFit: 'contain',
+                          opacity: nextImageData && imageLoaded ? 0 : 1,
+                          transition: 'opacity 0.3s ease-in-out'
+                        }}
+                        priority
+                        unoptimized
+                        width={0}
+                        height={0}
+                      />
+                    )}
+                    <div className="absolute bottom-2 left-2 bg-black/70 text-white px-3 py-1 rounded-md text-sm">
+                      {processingStatus || "AI-processed stream"}
+                    </div>
+                    
+                    {/* Fullscreen toggle button */}
+                    <button
+                      onClick={toggleFullScreen}
+                      className="absolute top-2 right-2 bg-black/70 text-white p-2 rounded-md hover:bg-black/90 transition-colors"
+                      aria-label="Enter fullscreen"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-white text-center p-8">
+                    <p className="text-xl">Waiting for stream data...</p>
+                    <p className="text-sm mt-2">Each frame is processed with AI stylization which takes ~5 seconds</p>
+                  </div>
+                )
+              ) : (
+                <div className="text-white text-center p-8">
+                  <p className="text-xl">{status}</p>
+                  {error && <p className="text-red-400 mt-2">{error}</p>}
+                </div>
+              )}
+            </div>
+            
+            {connected && stylePrompt && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-sm font-medium">Current Style:</p>
+                <p className="text-sm">{stylePrompt}</p>
+              </div>
+            )}
+            
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
+              <p className="text-sm font-medium">Status: {status}</p>
+              <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
+              <p className="text-sm">Note: Frames are processed with AI diffusion (~5 seconds per frame)</p>
+              {connected && (
+                <>
+                  <p className="text-sm">Frames received: {framesReceived}</p>
+                  {lastFrameTimestamp !== null && (
+                    <p className="text-sm">Current latency: {lastFrameTimestamp}ms</p>
+                  )}
+                </>
+              )}
+            </div>
+            
+            {error && (
+              <div className="flex space-x-4">
+                <button
+                  onClick={handleRetry}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                >
+                  Retry Connection
+                </button>
+                <button
+                  onClick={handleBack}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+                >
+                  Back to Home
+                </button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </>
   );
 } 

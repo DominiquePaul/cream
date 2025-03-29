@@ -64,11 +64,21 @@ def websocket_server():
             if stream_id not in streams:
                 streams[stream_id] = {
                     "processing": False,
-                    "latest_frame": None
+                    "latest_frame": None,
+                    "style_prompt": "A painting in the style of van Gogh's 'Starry Night'"  # Default prompt
                 }
         elif client_type == "viewer":
             active_connections[stream_id]["viewers"].append(websocket)
             logger.info(f"Viewer connected to stream {stream_id}")
+            
+            # Send the current style prompt to new viewer
+            if stream_id in streams and "style_prompt" in streams[stream_id]:
+                current_prompt = streams[stream_id]["style_prompt"]
+                await websocket.send_json({
+                    "type": "style_updated",
+                    "prompt": current_prompt
+                })
+                logger.info(f"Sent current style prompt to new viewer for stream {stream_id}: '{current_prompt}'")
         else:
             await websocket.close(code=1008, reason="Invalid client type")
             return
@@ -135,9 +145,53 @@ def websocket_server():
                                 global_processor  # Pass the existing processor
                             )
                         )
+                
+                # Handle prompt updates from broadcaster
+                elif data["type"] == "update_prompt" and client_type == "broadcaster":
+                    new_prompt = data.get("prompt", "")
+                    
+                    if not new_prompt:
+                        logger.warning(f"Empty prompt received for stream {stream_id}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Empty prompt received"
+                        })
+                        continue
+                    
+                    # Update the prompt for this stream
+                    if stream_id in streams:
+                        old_prompt = streams[stream_id]["style_prompt"]
+                        streams[stream_id]["style_prompt"] = new_prompt
+                        logger.info(f"Updated prompt for stream {stream_id}: '{old_prompt}' -> '{new_prompt}'")
                         
+                        # Confirm to the broadcaster
+                        await websocket.send_json({
+                            "type": "prompt_updated",
+                            "prompt": new_prompt
+                        })
+                        
+                        # Also notify viewers about the style change
+                        for viewer in active_connections[stream_id]["viewers"]:
+                            try:
+                                await viewer.send_json({
+                                    "type": "style_updated",
+                                    "prompt": new_prompt
+                                })
+                            except Exception as e:
+                                logger.error(f"Error notifying viewer of style update: {e}")
+                
                 elif data["type"] == "ping":
                     await websocket.send_json({"type": "pong"})
+                
+                # Handle request for current style prompt
+                elif data["type"] == "get_style_prompt" and client_type == "viewer":
+                    if stream_id in streams and "style_prompt" in streams[stream_id]:
+                        current_prompt = streams[stream_id]["style_prompt"]
+                        await websocket.send_json({
+                            "type": "style_updated",
+                            "prompt": current_prompt
+                        })
+                        logger.info(f"Sent current style prompt in response to request for stream {stream_id}: '{current_prompt}'")
         
         except WebSocketDisconnect:
             # Remove connection on disconnect
@@ -162,10 +216,15 @@ def websocket_server():
             # Process the frame using the shared processor
             try:
                 processing_start = asyncio.get_event_loop().time()
+                
+                # Use the stream-specific prompt instead of hardcoded one
+                current_prompt = streams[stream_id]["style_prompt"]
+                logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}'")
+                
                 processed_base64 = await process_base64_frame(
                     frame_data, 
                     processor,
-                    prompt="A painting in the style of van Gogh's 'Starry Night'"
+                    prompt=current_prompt
                 )
                 processing_time = asyncio.get_event_loop().time() - processing_start
                 
@@ -230,15 +289,26 @@ def websocket_server():
             processed_frame = f"data:image/jpeg;base64,{processed_frame}"
             logger.debug(f"Added data URL prefix to frame for stream {stream_id}")
         
+        # Get current style prompt
+        current_prompt = None
+        if stream_id in streams and "style_prompt" in streams[stream_id]:
+            current_prompt = streams[stream_id]["style_prompt"]
+        
         for i, viewer in enumerate(current_viewers):
             try:
-                await viewer.send_json({
+                message = {
                     "type": "frame",
                     "streamId": stream_id,
                     "frame": processed_frame,
                     "timestamp": asyncio.get_event_loop().time(),
                     "is_original": is_original
-                })
+                }
+                
+                # Include style prompt with each frame if available
+                if current_prompt:
+                    message["style_prompt"] = current_prompt
+                
+                await viewer.send_json(message)
             except Exception as e:
                 logger.error(f"Error sending to viewer {i}: {e}")
                 disconnected.append(viewer)

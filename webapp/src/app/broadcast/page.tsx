@@ -20,6 +20,9 @@ export default function BroadcastPage() {
   const frameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [processingFrame, setProcessingFrame] = useState(false);
   const [aspectRatio, setAspectRatio] = useState("56.25%"); // Default 16:9 (9/16 * 100)
+  const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [updatingPrompt, setUpdatingPrompt] = useState(false);
 
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -196,6 +199,13 @@ export default function BroadcastPage() {
             setError(data.message);
             setStatus("Error: " + data.message);
           }
+          else if (data.type === 'prompt_updated') {
+            // Handle confirmation of prompt update
+            console.log("Style prompt updated:", data.prompt);
+            setStylePrompt(data.prompt);
+            setUpdatingPrompt(false);
+            setStatus(`Style updated to: "${data.prompt}"`);
+          }
         } catch (err) {
           console.error("Error parsing WebSocket message:", err);
           setError("Failed to parse server message");
@@ -341,9 +351,38 @@ export default function BroadcastPage() {
     setStatus("Stream stopped");
   };
 
+  // Function to update the style prompt
+  const updateStylePrompt = () => {
+    if (!customPrompt || customPrompt.trim() === '') {
+      setError("Please enter a style prompt");
+      return;
+    }
+    
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError("WebSocket connection not open");
+      return;
+    }
+    
+    try {
+      setUpdatingPrompt(true);
+      setStatus("Updating style prompt...");
+      
+      wsRef.current.send(JSON.stringify({
+        type: 'update_prompt',
+        prompt: customPrompt.trim()
+      }));
+      
+      // The actual update will be confirmed by the server
+    } catch (err) {
+      console.error("Error sending prompt update:", err);
+      setError("Failed to update style: " + (err instanceof Error ? err.message : String(err)));
+      setUpdatingPrompt(false);
+    }
+  };
+
   return (
-    <div className="container flex items-center justify-center min-h-screen py-10">
-      <Card className="w-full max-w-3xl">
+    <div className="container mx-auto px-2 flex items-center justify-center min-h-screen py-10">
+      <Card className="w-full max-w-4xl">
         <CardHeader>
           <CardTitle>Broadcast Live</CardTitle>
           <CardDescription>
@@ -380,6 +419,47 @@ export default function BroadcastPage() {
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600">
               {error}
+            </div>
+          )}
+          
+          {isStreaming && (
+            <div className="space-y-2">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-sm font-medium">Current Style:</p>
+                <p className="text-sm">{stylePrompt}</p>
+              </div>
+              
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="Enter a new style prompt..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  disabled={!isStreaming || updatingPrompt}
+                />
+                <button
+                  onClick={updateStylePrompt}
+                  disabled={!isStreaming || updatingPrompt || !customPrompt}
+                  className={`px-4 py-2 rounded-md ${
+                    !isStreaming || updatingPrompt || !customPrompt
+                      ? 'bg-gray-300 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  {updatingPrompt ? 'Updating...' : 'Update Style'}
+                </button>
+              </div>
+              
+              <div className="text-xs text-gray-500">
+                <p>Prompt examples:</p>
+                <ul className="list-disc pl-4">
+                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Monet-style impressionist painting")}>A Monet-style impressionist painting</li>
+                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A cubist painting in the style of Picasso")}>A cubist painting in the style of Picasso</li>
+                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A modern pop art masterpiece")}>A modern pop art masterpiece</li>
+                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A watercolor illustration")}>A watercolor illustration</li>
+                </ul>
+              </div>
             </div>
           )}
           
