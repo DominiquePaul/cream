@@ -14,10 +14,15 @@
 | Sunday | (a) Prettify app </br>(b) Create docker image to run stream from raspberry pi </br>(c) [*buffer for anything else*] |
 
 
+- Streamer can see stream output of themselves via a toggle
+- Streamer can see number of viewers
+- Streamer can enable users to submit style requests and either approve them or set them to auto-approve.
+
 ### Ideas for the near future
 
 - [ ] Add audio streaming
 - [ ] Livestream chat
+- [ ] Save stream input and output images. -> This could make cool timelapses
 
 
 ### Ideas for the not-so-near future to keep in mind.
