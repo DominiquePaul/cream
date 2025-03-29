@@ -10,7 +10,7 @@
 | Wednesday | ... |
 | Thursday | ... |
 | Friday | (a) Deploy websocket server on modal.com for autoscaling ✅</br>(b) apply image transformations to streamed images with H100 GPU on modal ✅|
-| Saturday | (a) Remove black patches between frames in stream </br>(b) Users can specify prompt for image transformation </br>(c) improve speed of image transformations </br>(d) add registration/login for streamers </br>(e) streamers can purchase credits for streaming via stripe checkout |
+| Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation </br>(c) improve speed of image transformations </br>(d) add registration/login for streamers </br>(e) streamers can purchase credits for streaming via stripe checkout |
 | Sunday | (a) Prettify app </br>(b) Create docker image to run stream from raspberry pi </br>(c) [*buffer for anything else*] |
 
 

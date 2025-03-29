@@ -19,10 +19,13 @@ export default function WatchPage() {
   const [processingStatus, setProcessingStatus] = useState<string>("");
   const [lastFrameTime, setLastFrameTime] = useState<Date | null>(null);
   const [aspectRatio, setAspectRatio] = useState("56.25%"); // Default 16:9 (9/16 * 100)
+  const [nextImageData, setNextImageData] = useState<string | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const router = useRouter();
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const connectedRef = useRef(false);
   const framesReceivedRef = useRef(0);
+  const frameTimestampsRef = useRef<Date[]>([]);
   
   useEffect(() => {
     connectedRef.current = connected;
@@ -121,14 +124,32 @@ export default function WatchPage() {
           
           // Calculate time since last frame
           const now = new Date();
-          if (lastFrameTime) {
-            const timeSinceLastFrame = (now.getTime() - lastFrameTime.getTime()) / 1000;
-            setProcessingStatus(`Frame rate: ${timeSinceLastFrame.toFixed(1)}s per frame`);
+          
+          // Store the timestamp for frame rate calculation
+          frameTimestampsRef.current.push(now);
+          // Keep only the last 5 timestamps
+          if (frameTimestampsRef.current.length > 5) {
+            frameTimestampsRef.current.shift();
           }
+          
+          // Calculate average frame rate if we have at least 2 timestamps
+          if (frameTimestampsRef.current.length >= 2) {
+            const timestamps = frameTimestampsRef.current;
+            const totalTimeSeconds = (timestamps[timestamps.length - 1].getTime() - timestamps[0].getTime()) / 1000;
+            // Calculate frames per second (using n-1 time intervals between n points)
+            const fps = totalTimeSeconds > 0 ? (timestamps.length - 1) / totalTimeSeconds : 0;
+            // Inverse gives seconds per frame
+            const spf = fps > 0 ? 1 / fps : 0;
+            setProcessingStatus(`Last 5 frame avg: ${spf.toFixed(1)}s/frame (${fps.toFixed(2)} FPS)`);
+          } else if (lastFrameTime) {
+            const timeSinceLastFrame = (now.getTime() - lastFrameTime.getTime()) / 1000;
+            setProcessingStatus(`Latest: ${timeSinceLastFrame.toFixed(1)}s/frame`);
+          }
+          
           setLastFrameTime(now);
           
           // Update image with received frame
-          setImageData(data.frame);
+          setNextImageData(data.frame);
           
           // Update aspect ratio from first frame (or when dimensions change)
           // We need to create a temporary image to get the dimensions
@@ -193,9 +214,19 @@ export default function WatchPage() {
       setWsConnected(false);
       
       // Only change connected state if we were previously connected
+      // and if the last frame was received more than 10 seconds ago
+      // to prevent showing disconnection messages during normal processing gaps
       if (connectedRef.current) {
-        setConnected(false);
-        setStatus("Disconnected from server");
+        const timeSinceLastFrame = lastFrameTime ? (new Date().getTime() - lastFrameTime.getTime()) / 1000 : 0;
+        
+        // Only change connected state and show disconnect message if more than 10 seconds have passed since last frame
+        if (!lastFrameTime || timeSinceLastFrame > 10) {
+          setConnected(false);
+          setStatus("Disconnected from server");
+        } else {
+          // For brief disconnections, just keep the status as is
+          console.log(`Brief websocket disconnection, last frame was ${timeSinceLastFrame.toFixed(1)}s ago`);
+        }
       }
       
       // Clear the ping interval
@@ -204,7 +235,9 @@ export default function WatchPage() {
       // Try to reconnect after a delay
       reconnectTimeoutRef.current = setTimeout(() => {
         console.log("Attempting to reconnect...");
-        setStatus("Reconnecting...");
+        if (!connectedRef.current) {
+          setStatus("Reconnecting...");
+        }
         connectWebSocket();
       }, 3000);
     };
@@ -234,6 +267,32 @@ export default function WatchPage() {
     };
   }, [connectWebSocket]);
 
+  // Reset image loaded state when receiving a new frame
+  useEffect(() => {
+    if (nextImageData && nextImageData !== imageData) {
+      setImageLoaded(false);
+    }
+  }, [nextImageData, imageData]);
+
+  // Add this effect to reconnect when the page becomes visible after being hidden
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("Page became visible, checking WebSocket connection");
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          console.log("WebSocket not open, reconnecting");
+          connectWebSocket();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [connectWebSocket]);
+
   const handleRetry = () => {
     window.location.reload();
   };
@@ -260,18 +319,44 @@ export default function WatchPage() {
             }}
           >
             {connected ? (
-              imageData ? (
+              imageData || nextImageData ? (
                 <div className="absolute inset-0 w-full h-full">
-                  <Image 
-                    src={imageData}
-                    alt="Live stream"
-                    fill
-                    style={{ objectFit: 'contain' }}
-                    priority
-                    unoptimized
-                    width={0}
-                    height={0}
-                  />
+                  {nextImageData && (
+                    <Image 
+                      src={nextImageData}
+                      alt="Live stream"
+                      fill
+                      style={{ 
+                        objectFit: 'contain',
+                        opacity: imageLoaded ? 1 : 0,
+                        transition: 'opacity 0.3s ease-in-out'
+                      }}
+                      priority
+                      unoptimized
+                      width={0}
+                      height={0}
+                      onLoad={() => {
+                        setImageLoaded(true);
+                        setImageData(nextImageData);
+                      }}
+                    />
+                  )}
+                  {imageData && nextImageData !== imageData && (
+                    <Image 
+                      src={imageData}
+                      alt="Previous frame"
+                      fill
+                      style={{ 
+                        objectFit: 'contain',
+                        opacity: nextImageData && imageLoaded ? 0 : 1,
+                        transition: 'opacity 0.3s ease-in-out'
+                      }}
+                      priority
+                      unoptimized
+                      width={0}
+                      height={0}
+                    />
+                  )}
                   <div className="absolute bottom-2 left-2 bg-black/70 text-white px-3 py-1 rounded-md text-sm">
                     {processingStatus || "AI-processed stream"}
                   </div>
