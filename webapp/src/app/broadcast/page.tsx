@@ -4,6 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useRef, useState, useCallback } from "react";
 
+// Define global types for the window object
+declare global {
+  interface Window {
+    lastProcessedFrameTime?: Date;
+    frameProcessingTimes?: number[];
+    frameSkipCounter?: number;
+  }
+}
+
 export default function BroadcastPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -23,6 +32,9 @@ export default function BroadcastPage() {
   const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
+  const [strength, setStrength] = useState(0.9); // Default strength value
+  const [updatingStrength, setUpdatingStrength] = useState(false);
+  const processingTimesRef = useRef<number[]>([]);
 
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -80,15 +92,14 @@ export default function BroadcastPage() {
       // Draw video frame to canvas
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Get data URL from canvas
-      const frame = canvas.toDataURL('image/jpeg', 0.7);
+      // Get data URL from canvas with REDUCED quality for faster transmission
+      const frame = canvas.toDataURL('image/jpeg', 0.5); // Reduced from 0.7 to 0.5
       
       // Send frame data
       console.log(`FRAME DEBUG: Sending frame #${frameCounterRef.current}, size: ${Math.round(frame.length / 1024)}KB, stream: ${currentStreamId}`);
       
-      // Update processing status
-      setProcessingFrame(true);
-      setStatus(`Streaming: Processing frame #${frameCounterRef.current}`);
+      // Update UI to show we're sending frames
+      setStatus(`Streaming: Sending frame #${frameCounterRef.current}`);
       
       wsRef.current.send(JSON.stringify({
         type: 'frame',
@@ -98,13 +109,21 @@ export default function BroadcastPage() {
         requiresProcessing: true // Add flag to indicate this frame needs ML processing
       }));
       
-      // Schedule next frame with a timeout to match processing time (5 seconds)
-      // Add a small buffer to account for network delays
+      // Calculate optimal delay based on recent processing times
+      let nextFrameDelay = 1500; // Default 1.5s delay
+      
+      if (processingTimesRef.current.length > 0) {
+        // Use average of recent processing times + a small buffer
+        const avgProcessingTime = processingTimesRef.current.reduce((sum, time) => sum + time, 0) / processingTimesRef.current.length;
+        // Add 200ms buffer to avoid overwhelming the server
+        nextFrameDelay = Math.max(avgProcessingTime * 1000 + 200, 1000);
+        console.log(`Adaptive frame rate: Setting next frame delay to ${nextFrameDelay.toFixed(0)}ms based on avg processing time of ${avgProcessingTime.toFixed(2)}s`);
+      }
+      
+      // Schedule next frame with dynamic timing
       frameTimeoutRef.current = setTimeout(() => {
-        setProcessingFrame(false);
-        setStatus(`Streaming: Sent ${frameCounterRef.current} frames`);
         sendFrames();
-      }, 5500);
+      }, nextFrameDelay);
       
     } catch (err) {
       console.error("Error sending frame:", err);
@@ -112,6 +131,87 @@ export default function BroadcastPage() {
       // Retry after a delay if there was an error
       frameTimeoutRef.current = setTimeout(sendFrames, 2000);
     }
+  }, []);
+
+  // Add a handler for frame_skipped messages
+  // Update the onmessage handler to handle new message types
+  const setupMessageHandler = useCallback((ws: WebSocket) => {
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received WebSocket message:", data);
+        
+        if (data.type === 'processing_update') {
+          // Handle processing updates from server
+          setStatus(`Streaming: ${data.status || 'Processing frame...'}`);
+          setProcessingFrame(true);
+        }
+        else if (data.type === 'frame') {
+          // Server is sending back a processed frame
+          setProcessingFrame(false);
+          // Calculate time since last frame
+          const now = new Date();
+          const lastFrame = window.lastProcessedFrameTime || new Date(now.getTime() - 5000);
+          const timeSinceLastFrame = (now.getTime() - lastFrame.getTime()) / 1000;
+          window.lastProcessedFrameTime = now;
+          
+          // Track frame processing times
+          if (!window.frameProcessingTimes) {
+            window.frameProcessingTimes = [];
+          }
+          window.frameProcessingTimes.push(timeSinceLastFrame);
+          if (window.frameProcessingTimes.length > 10) {
+            window.frameProcessingTimes.shift();
+          }
+          
+          // Store processing time for adaptive frame rate
+          const newProcessingTimes = [...processingTimesRef.current, timeSinceLastFrame];
+          if (newProcessingTimes.length > 5) {
+            newProcessingTimes.shift(); // Keep last 5 values
+          }
+          processingTimesRef.current = newProcessingTimes;
+          
+          // Calculate average
+          const avg = window.frameProcessingTimes.reduce((a, b) => a + b, 0) / window.frameProcessingTimes.length;
+          
+          setStatus(`Processed frame at ${timeSinceLastFrame.toFixed(1)}s (avg: ${avg.toFixed(1)}s) - Frame #${frameCounterRef.current - 1}`);
+        }
+        else if (data.type === 'frame_skipped') {
+          // Server skipped a frame (already processing)
+          console.log('Frame skipped by server:', data.message);
+          
+          if (!window.frameSkipCounter) {
+            window.frameSkipCounter = 0;
+          }
+          window.frameSkipCounter++;
+          
+          // Update UI with more information about the skipped frame
+          setStatus(`Frame queued: Current frame being AI-processed, this frame will be processed next`);
+        }
+        else if (data.type === 'error') {
+          console.error("Error from server:", data.message);
+          setError(data.message);
+          setStatus("Error: " + data.message);
+        }
+        else if (data.type === 'prompt_updated') {
+          // Handle confirmation of prompt update
+          console.log("Style prompt updated:", data.prompt);
+          setStylePrompt(data.prompt);
+          setUpdatingPrompt(false);
+          setStatus(`Style updated to: "${data.prompt}"`);
+        }
+        else if (data.type === 'strength_updated') {
+          // Handle confirmation of strength update
+          console.log("Strength updated:", data.strength);
+          setStrength(data.strength);
+          setUpdatingStrength(false);
+          setStatus(`Strength updated to: ${data.strength}`);
+        }
+      } catch (err) {
+        console.error("Error parsing WebSocket message:", err);
+        setError("Failed to parse server message");
+      }
+    };
   }, []);
 
   // Define a function to establish the WebSocket connection
@@ -129,7 +229,10 @@ export default function BroadcastPage() {
     const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
     
     // With Modal, the streamId is part of the URL path
-    const fullWsUrl = `${wsUrl}/broadcaster/${newStreamId}`;
+    // Remove the 'ws/' prefix to avoid double 'ws/ws/'
+    const fullWsUrl = wsUrl.endsWith('/') 
+      ? `${wsUrl}broadcaster/${newStreamId}` 
+      : `${wsUrl}/broadcaster/${newStreamId}`;
     
     console.log(`Connecting to WebSocket at: ${fullWsUrl}`);
     try {
@@ -183,34 +286,13 @@ export default function BroadcastPage() {
         
         // Start after a small delay to ensure everything is ready
         setTimeout(startSendingFrames, 100);
+        
+        // Setup message handler with our new handler
+        setupMessageHandler(ws);
       };
       
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log("Received WebSocket message:", data);
-          
-          if (data.type === 'processing_update') {
-            // Handle processing updates from server
-            setStatus(`Streaming: ${data.status || 'Processing frame...'}`);
-          }
-          else if (data.type === 'error') {
-            console.error("Error from server:", data.message);
-            setError(data.message);
-            setStatus("Error: " + data.message);
-          }
-          else if (data.type === 'prompt_updated') {
-            // Handle confirmation of prompt update
-            console.log("Style prompt updated:", data.prompt);
-            setStylePrompt(data.prompt);
-            setUpdatingPrompt(false);
-            setStatus(`Style updated to: "${data.prompt}"`);
-          }
-        } catch (err) {
-          console.error("Error parsing WebSocket message:", err);
-          setError("Failed to parse server message");
-        }
-      };
+      // Replace the onmessage handler with our setup function call
+      setupMessageHandler(ws);
       
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
@@ -247,7 +329,7 @@ export default function BroadcastPage() {
       setStatus("Connection failed");
       return null;
     }
-  }, [sendFrames]);
+  }, [sendFrames, setupMessageHandler]);
   
   // Clean up WebSocket on component unmount
   useEffect(() => {
@@ -380,13 +462,37 @@ export default function BroadcastPage() {
     }
   };
 
+  // Function to update the strength parameter
+  const updateStrength = (newStrength: number) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError("WebSocket connection not open");
+      return;
+    }
+    
+    try {
+      setUpdatingStrength(true);
+      setStatus("Updating strength parameter...");
+      
+      wsRef.current.send(JSON.stringify({
+        type: 'update_strength',
+        strength: newStrength
+      }));
+      
+      // The actual update will be confirmed by the server response
+    } catch (err) {
+      console.error("Error sending strength update:", err);
+      setError("Failed to update strength: " + (err instanceof Error ? err.message : String(err)));
+      setUpdatingStrength(false);
+    }
+  };
+
   return (
     <div className="container mx-auto px-2 flex items-center justify-center min-h-screen py-10">
       <Card className="w-full max-w-4xl">
         <CardHeader>
           <CardTitle>Broadcast Live</CardTitle>
           <CardDescription>
-            AI-Stylized livestream (processing takes ~5 seconds per frame)
+            AI-Stylized livestream with continuous frame capturing and real-time processing
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -408,7 +514,7 @@ export default function BroadcastPage() {
                 <div className="text-white text-center p-4">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
                   <p>Processing frame with AI diffusion model...</p>
-                  <p className="text-sm text-gray-300">(Takes ~5 seconds per frame)</p>
+                  <p className="text-sm text-gray-300">(Streaming at maximum possible frame rate)</p>
                 </div>
               </div>
             )}
@@ -451,6 +557,30 @@ export default function BroadcastPage() {
                 </button>
               </div>
               
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-md">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">Effect Strength: {(strength * 100).toFixed(0)}%</p>
+                  {updatingStrength && <p className="text-xs text-purple-600">Updating...</p>}
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.1"
+                  value={strength}
+                  onChange={(e) => {
+                    const newStrength = parseFloat(e.target.value);
+                    setStrength(newStrength);
+                    updateStrength(newStrength);
+                  }}
+                  className="w-full"
+                  disabled={!isStreaming || updatingStrength}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Lower values preserve more of the original image, higher values apply more stylization.
+                </p>
+              </div>
+              
               <div className="text-xs text-gray-500">
                 <p>Prompt examples:</p>
                 <ul className="list-disc pl-4">
@@ -466,7 +596,7 @@ export default function BroadcastPage() {
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
             <p className="text-sm font-medium">Status: {status}</p>
             <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
-            <p className="text-sm">Note: Each frame is processed with an AI diffusion model (~5 seconds/frame)</p>
+            <p className="text-sm">Note: Frames are continuously sent and processed at maximum possible speed</p>
             {streamId && (
               <p className="text-sm mt-2">
                 Share this link to let others watch your stream:

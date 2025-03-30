@@ -192,6 +192,7 @@ def websocket_server():
                 streams[stream_id] = {
                     "processing": False,
                     "latest_frame": None,
+                    "latest_processed_frame": None,  # Store the latest processed frame for new viewers
                     "style_prompt": DEFAULT_STYLE_PROMPT,
                     "negative_prompt": "ugly, deformed, disfigured, poor details, bad anatomy",
                     "processor_type": processor_type,
@@ -223,6 +224,29 @@ def websocket_server():
                     "processor_type": current_processor
                 })
                 logger.info(f"Sent current style prompt to new viewer for stream {stream_id}: '{current_prompt}'")
+                
+                # If we have a recent processed frame, send it to the new viewer immediately
+                if "latest_processed_frame" in streams[stream_id] and streams[stream_id]["latest_processed_frame"]:
+                    try:
+                        logger.info(f"Sending latest processed frame to new viewer for stream {stream_id}")
+                        
+                        current_strength = streams[stream_id].get("strength", 0.9)
+                        current_timestamp_ms = int(time.time() * 1000)
+                        
+                        await websocket.send_json({
+                            "type": "frame",
+                            "streamId": stream_id,
+                            "frame": streams[stream_id]["latest_processed_frame"],
+                            "timestamp": current_timestamp_ms,
+                            "is_original": False,
+                            "processor_type": current_processor,
+                            "processed": True,
+                            "style_prompt": current_prompt,
+                            "strength": current_strength
+                        })
+                        logger.info(f"Successfully sent latest processed frame to new viewer for stream {stream_id}")
+                    except Exception as e:
+                        logger.error(f"Error sending latest frame to new viewer: {e}")
         else:
             await websocket.close(code=1008, reason="Invalid client type")
             return
@@ -274,7 +298,7 @@ def websocket_server():
                                 })
                                 continue
                                 
-                            # Store the latest frame
+                            # Always store the latest frame
                             streams[stream_id]["latest_frame"] = frame
                             
                             # Process frame if not already processing
@@ -292,19 +316,20 @@ def websocket_server():
                                 asyncio.create_task(
                                     process_and_broadcast_frame(
                                         stream_id, 
-                                        streams[stream_id]["latest_frame"],
+                                        streams[stream_id]["latest_frame"],  
                                         active_connections[stream_id]["viewers"],
                                         processor,
                                         current_processor_type
                                     )
                                 )
                             else:
-                                # Already processing - just store the latest frame and notify the client that we're skipping immediate processing
+                                # Already processing - just store the latest frame and notify the client
+                                # that this frame will be processed when current processing completes
                                 await websocket.send_json({
                                     "type": "frame_skipped",
-                                    "message": "Frame received but skipped processing (will be processed later if still the latest frame)"
+                                    "message": "A frame is already being processed - this frame will be processed next if it's still the latest"
                                 })
-                                logger.info(f"Received frame for stream {stream_id} - stored as latest frame but skipping immediate processing")
+                                logger.info(f"Received frame for stream {stream_id} - stored as latest frame, will be processed after current frame")
                     
                     # Handle prompt updates from broadcaster
                     elif data["type"] == "update_prompt" and client_type == "broadcaster":
@@ -487,113 +512,103 @@ def websocket_server():
     async def process_and_broadcast_frame(stream_id, frame_data, viewers, processor, processor_type):
         """Process a frame and broadcast to all viewers"""
         try:
-            # First, immediately send the original frame to the viewers for low latency
-            # This ensures viewers always see something while processing happens
+            # We no longer send the original frame to viewers
+            # Skip straight to processing the frame
+            processing_start = asyncio.get_event_loop().time()
+            
+            # Use the stream-specific prompt instead of hardcoded one
+            current_prompt = streams[stream_id]["style_prompt"]
+            current_strength = streams[stream_id].get("strength", 0.9)
+            
+            logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}' using {processor_type} processor (strength: {current_strength})")
+            
+            # Process the frame
+            processed_base64 = await process_base64_frame(
+                frame_data, 
+                processor,
+                prompt=current_prompt,
+                negative_prompt=streams[stream_id].get("negative_prompt", None),
+                strength=current_strength 
+            )
+            processing_time = asyncio.get_event_loop().time() - processing_start
+            
+            logger.info(f"Frame for stream {stream_id} processed in {processing_time:.2f}s using {processor_type} processor (strength: {current_strength})")
+            
+            # Store the processed frame for new viewers that join later
+            if processed_base64 and stream_id in streams:
+                if not processed_base64.startswith('data:'):
+                    processed_base64 = f"data:image/jpeg;base64,{processed_base64}"
+                streams[stream_id]["latest_processed_frame"] = processed_base64
+                logger.info(f"Stored latest processed frame for stream {stream_id}")
+            
+            # Get the most up-to-date viewers list from active_connections
+            current_viewers = viewers
+            if stream_id in active_connections and not viewers:
+                logger.info(f"Using viewers from active_connections for stream {stream_id}")
+                current_viewers = active_connections[stream_id]["viewers"]
+            
+            # Only broadcast the processed frame to viewers
+            logger.info(f"Broadcasting PROCESSED frame to viewers for stream {stream_id} (using {len(current_viewers)} viewers)")
             await broadcast_frame(
                 stream_id, 
-                frame_data, 
-                viewers, 
-                is_original=True, 
+                processed_base64, 
+                current_viewers, 
+                is_original=False,  # Explicitly mark as NOT original
                 processor_type=processor_type
             )
             
-            try:
-                processing_start = asyncio.get_event_loop().time()
-                
-                # Use the stream-specific prompt instead of hardcoded one
-                current_prompt = streams[stream_id]["style_prompt"]
-                current_strength = streams[stream_id].get("strength", 0.9)
-                
-                logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}' using {processor_type} processor (strength: {current_strength})")
-                
-                # Process the frame
-                processed_base64 = await process_base64_frame(
-                    frame_data, 
-                    processor,
-                    prompt=current_prompt,
-                    negative_prompt=streams[stream_id].get("negative_prompt", None),
-                    strength=current_strength 
-                )
-                processing_time = asyncio.get_event_loop().time() - processing_start
-                
-                logger.info(f"Frame for stream {stream_id} processed in {processing_time:.2f}s using {processor_type} processor (strength: {current_strength})")
-                
-                # Broadcast processed frame to all viewers
-                await broadcast_frame(stream_id, processed_base64, viewers, processor_type=processor_type)
-                
-            except Exception as e:
-                logger.error(f"Frame processing error: {e}")
-                # Capture and log traceback
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                # Send error message to viewers
-                for viewer in viewers:
-                    try:
-                        await viewer.send_json({
-                            "type": "error",
-                            "message": "Frame processing failed, please try again",
-                            "details": str(e)
-                        })
-                    except Exception:
-                        pass
-                
-                # Also echo the original frame back if processing fails
-                # If frame_data doesn't start with 'data:', add the prefix
-                if frame_data and isinstance(frame_data, str) and not frame_data.startswith('data:'):
-                    frame_data = f"data:image/jpeg;base64,{frame_data}"
-                    logger.debug(f"Added data URL prefix to original frame for error fallback")
-                
-                await broadcast_frame(stream_id, frame_data, viewers, is_original=True, processor_type=processor_type)
-            
         except Exception as e:
-            logger.error(f"Error processing frame: {e}")
+            logger.error(f"Frame processing error: {e}")
+            # Capture and log traceback
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Send error message to viewers
+            current_viewers = viewers
+            if stream_id in active_connections:
+                current_viewers = active_connections[stream_id]["viewers"]
+            
+            for viewer in current_viewers:
+                try:
+                    await viewer.send_json({
+                        "type": "error",
+                        "message": "Frame processing failed, please try again",
+                        "details": str(e)
+                    })
+                except Exception:
+                    pass
+        
         finally:
             # Reset processing flag
             if stream_id in streams:
-                # Before processing a new frame, check if there are too many frames waiting
+                # Check if the latest frame is different from the one we just processed
                 latest_frame = streams[stream_id]["latest_frame"]
                 is_new_frame = latest_frame != frame_data
                 
-                # Only process next frame if we're not falling too far behind
-                # This helps prevent a growing backlog
-                frame_skip_threshold = 3  # Only keep processing if we have <= 3 frames waiting
-                should_process_next = is_new_frame and (window.frameSkipCounter <= frame_skip_threshold if hasattr(window, 'frameSkipCounter') else True)
-                
                 if not is_new_frame:
+                    # No new frames arrived while we were processing
                     streams[stream_id]["processing"] = False
                     logger.info(f"Processing complete for stream {stream_id}, no new frames waiting")
-                elif should_process_next:
-                    # Process next frame normally
-                    # Get the current processor type
-                    current_processor_type = streams[stream_id].get("processor_type", "standard")
-                    processor = global_processors[current_processor_type]
+                else:
+                    # A new frame arrived while we were processing
+                    # Process the latest frame immediately
+                    logger.info(f"New frame arrived during processing - processing latest frame for stream {stream_id}")
+                    
+                    # Get the current processor type and processor
+                    current_processor_type = streams[stream_id].get("processor_type", processor_type)
+                    next_processor = global_processors[current_processor_type]
+                    
+                    # Get the most up-to-date viewers
+                    current_viewers = viewers
+                    if stream_id in active_connections:
+                        current_viewers = active_connections[stream_id]["viewers"]
                     
                     # Launch task to process the latest frame
                     asyncio.create_task(
                         process_and_broadcast_frame(
                             stream_id, 
                             latest_frame,
-                            viewers,
-                            processor,
-                            current_processor_type
-                        )
-                    )
-                else:
-                    # Too many frames in backlog - skip ahead to latest
-                    logger.info(f"Skipping intermediate frames for stream {stream_id} due to backlog")
-                    streams[stream_id]["processing"] = False  # Temporarily reset to allow immediate processing
-                    
-                    # Force a small delay before processing the latest frame
-                    await asyncio.sleep(0.1)
-                    
-                    # Trigger processing for the latest frame
-                    streams[stream_id]["processing"] = True
-                    asyncio.create_task(
-                        process_and_broadcast_frame(
-                            stream_id, 
-                            latest_frame,
-                            viewers,
-                            processor,
+                            current_viewers,
+                            next_processor,
                             current_processor_type
                         )
                     )
@@ -624,15 +639,39 @@ def websocket_server():
         # Use timestamp in milliseconds since epoch (like JavaScript's Date.now())
         current_timestamp_ms = int(time.time() * 1000)
         
+        # Log helpful debug information about the frame being sent
+        frame_type = "original" if is_original else "processed"
+        viewer_count = len(current_viewers)
+        
+        # If we have no viewers, check if there are some in active_connections
+        if viewer_count == 0 and stream_id in active_connections:
+            logger.warning(f"No viewers in passed list, but found {len(active_connections[stream_id]['viewers'])} viewers in active_connections")
+            current_viewers = active_connections[stream_id]["viewers"].copy()
+            viewer_count = len(current_viewers)
+        
+        logger.info(f"Broadcasting {frame_type} frame to {viewer_count} viewers for stream {stream_id} using {processor_type} processor")
+        
+        if viewer_count == 0:
+            logger.warning(f"No viewers to broadcast to for stream {stream_id} - frames are being processed but not delivered")
+            return
+        
+        successful_deliveries = 0
         for i, viewer in enumerate(current_viewers):
             try:
+                # Check if the viewer connection is open
+                if not hasattr(viewer, 'client_state') or viewer.client_state.get('state') == 'DISCONNECTED':
+                    logger.warning(f"Viewer {i} appears disconnected, skipping")
+                    disconnected.append(viewer)
+                    continue
+                    
                 message = {
                     "type": "frame",
                     "streamId": stream_id,
                     "frame": processed_frame,
                     "timestamp": current_timestamp_ms,
                     "is_original": is_original,
-                    "processor_type": processor_type
+                    "processor_type": processor_type,
+                    "processed": not is_original  # Add explicit processed flag opposite of is_original
                 }
                 
                 # Include style prompt with each frame if available
@@ -643,15 +682,36 @@ def websocket_server():
                 if current_strength is not None:
                     message["strength"] = current_strength
                 
+                # Log detailed message structure but skip the actual frame data
+                debug_message = message.copy()
+                if "frame" in debug_message:
+                    frame_size = len(debug_message["frame"]) if debug_message["frame"] else 0
+                    debug_message["frame"] = f"[data:image... {frame_size} bytes]"
+                logger.debug(f"Sending message to viewer {i}: {debug_message}")
+                
                 await viewer.send_json(message)
+                successful_deliveries += 1
+                logger.debug(f"Successfully sent frame to viewer {i}")
             except Exception as e:
                 logger.error(f"Error sending to viewer {i}: {e}")
                 disconnected.append(viewer)
         
         # Remove disconnected viewers
         for viewer in disconnected:
+            logger.info(f"Removing disconnected viewer from stream {stream_id}")
             if viewer in viewers:
                 viewers.remove(viewer)
+        
+        # Log success rate
+        if viewer_count > 0:
+            success_rate = (successful_deliveries / viewer_count) * 100
+            logger.info(f"Successfully delivered {frame_type} frame to {successful_deliveries}/{viewer_count} viewers ({success_rate:.1f}%)")
+            
+            # If no successful deliveries, this is a critical issue
+            if successful_deliveries == 0:
+                logger.error(f"CRITICAL: Failed to deliver frame to ANY viewers for stream {stream_id}")
+        elif disconnected:
+            logger.warning(f"Removed {len(disconnected)} disconnected viewers but no active viewers remain")
     
     @app.get("/")
     async def root():
