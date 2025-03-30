@@ -6,16 +6,17 @@ from typing import Optional, Dict
 import torch
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
 from transformers import pipeline
 from diffusers.models.controlnets.controlnet import ControlNetModel
 from diffusers.pipelines.auto_pipeline import AutoPipelineForImage2Image
-from diffusers.utils.loading_utils import load_image
 
-from src.logger import logger
+from src.utils.logger import logger
 
 class LivestreamImageProcessor:
-    def __init__(self, use_controlnet: bool = True, style_prompt: str = "Van Gogh style", strength: float = 0.6):
+    def __init__(self, 
+                 use_controlnet: bool, 
+                 style_prompt: str, 
+                 strength: float):
         """
         Initialize the livestream image processor.
         
@@ -345,7 +346,7 @@ class LivestreamImageProcessor:
                     strength=self.strength,
                     guidance_scale=guidance_scale,
                     negative_prompt=negative_prompt,
-                    num_inference_steps=25,  # Slightly increased for better quality
+                    num_steps=25,  # Slightly increased for better quality
                 ).images[0]
                 generation_time = time.time() - generation_start
                 logger.info(f"Image generation took {generation_time:.2f}s")
@@ -358,7 +359,7 @@ class LivestreamImageProcessor:
                     strength=self.strength,
                     guidance_scale=guidance_scale,
                     negative_prompt=negative_prompt,
-                    num_inference_steps=25,  # Slightly increased for better quality
+                    num_steps=25,  # Slightly increased for better quality
                 ).images[0]
                 generation_time = time.time() - generation_start
                 logger.info(f"Image generation took {generation_time:.2f}s")
@@ -549,23 +550,71 @@ def get_processor(
 
 
 # For modal.com integration
-async def apply_diffusion_model(img_data: bytes) -> bytes:
+async def apply_diffusion_model(
+    img_data: bytes,
+    prompt: Optional[str] = None,
+    negative_prompt: str = "ugly, deformed, disfigured, poor details, bad anatomy",
+    guidance_scale: float = 7.0,
+    use_controlnet: bool = True,
+    style_prompt: str = "Van Gogh style painting",
+    strength: float = 0.6,
+    output_size: Optional[tuple] = None
+) -> bytes:
     """
     Apply the diffusion model to an image.
     This function is called from the WebSocket handler.
     
     Args:
         img_data: Raw bytes of the image
+        prompt: Text prompt for generation (uses default style if None)
+        negative_prompt: Negative prompt to guide generation
+        guidance_scale: Guidance scale for the diffusion model
+        use_controlnet: Whether to use ControlNet for better structure preservation
+        style_prompt: The style prompt to apply if prompt is None
+        strength: How strongly to apply the diffusion (0.0-1.0)
+        output_size: Optional tuple of (width, height) to resize the output image
         
     Returns:
         Processed image bytes
     """
     # Get or create processor
     proc = get_processor(
-        use_controlnet=True,
-        style_prompt="Van Gogh style painting",
-        strength=0.6
+        use_controlnet=use_controlnet,
+        style_prompt=style_prompt,
+        strength=strength
     )
     
     # Process the frame
-    return await proc.process_frame(img_data)
+    processed_bytes = await proc.process_frame(
+        img_data,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        guidance_scale=guidance_scale
+    )
+    
+    # Resize the output if requested
+    if output_size is not None and len(output_size) == 2:
+        try:
+            # Convert bytes to PIL Image
+            output_buffer = io.BytesIO(processed_bytes)
+            output_image = Image.open(output_buffer)
+            
+            # Ensure RGB mode
+            if output_image.mode != 'RGB':
+                output_image = output_image.convert('RGB')
+                
+            # Resize to requested dimensions
+            width, height = output_size
+            logger.info(f"Resizing output to requested dimensions: {width}x{height}")
+            resized_image = output_image.resize((width, height), Image.Resampling.LANCZOS)
+            
+            # Convert back to bytes
+            resized_buffer = io.BytesIO()
+            resized_image.save(resized_buffer, format="JPEG", quality=95)
+            return resized_buffer.getvalue()
+        except Exception as e:
+            logger.error(f"Error resizing output image: {e}")
+            # Return the processed image without resizing on error
+            return processed_bytes
+    
+    return processed_bytes

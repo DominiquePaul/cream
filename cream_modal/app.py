@@ -1,10 +1,8 @@
 import asyncio
-import json
-import websockets
 from modal import Image, App, fastapi_endpoint, asgi_app, Secret
 
-from src.logger import logger
-from src.diffusion_pipeline import get_processor, process_base64_frame
+from src.utils.logger import logger
+from src.diffusion_processor import get_diffusion_processor, process_base64_frame
 
 app = App("cream-livestream-processor")
 
@@ -32,23 +30,79 @@ async def health():
 @app.function(image=ml_image, allow_concurrent_inputs=10, secrets=[Secret.from_name("custom-secret")], gpu="H100")
 @asgi_app()
 def websocket_server():
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
     
     app = FastAPI(title="Livestream Processor WebSocket Server")
     active_connections = {}
     streams = {}
     
-    # Initialize the processor once at startup
-    logger.info("Initializing global image processor for WebSocket server...")
-    global_processor = get_processor(
-        use_controlnet=True,
-        style_prompt="A painting in the style of van Gogh's 'Starry Night'",
-        strength=1.0
+    # Define default style prompt as a constant
+    DEFAULT_STYLE_PROMPT = "A painting in the style of van Gogh's 'Starry Night'"
+    
+    # Initialize the processors once at startup - both standard and lightning
+    logger.info("Initializing global image processors for WebSocket server...")
+    
+    # Configuration for both processors
+    processor_config = {
+        "use_controlnet": True,
+        "style_prompt": DEFAULT_STYLE_PROMPT,
+        "strength": 0.9,
+        "guidance_scale": 7.0,
+        "negative_prompt": "ugly, deformed, disfigured, poor details, bad anatomy",
+        "image_size": 512,
+        "processing_size": 768
+    }
+    
+    # Standard processor with more steps
+    standard_processor = get_diffusion_processor(
+        processor_type="standard",
+        model_name="runwayml/stable-diffusion-v1-5",
+        controlnet_model_name="lllyasviel/control_v11f1p_sd15_depth",
+        num_steps=25,
+        **processor_config
     )
-    logger.info("Global image processor initialized successfully")
+    
+    # Lightning processor with fewer steps
+    try:
+        lightning_processor = get_diffusion_processor(
+            processor_type="lightning",
+            num_steps=4,  # Lightning works better with fewer steps
+            **processor_config
+        )
+        has_lightning = True
+        logger.info("Lightning processor initialized successfully")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Lightning processor: {e}")
+        has_lightning = False
+        lightning_processor = None
+    
+    logger.info("Image processors initialized successfully")
+    
+    # Global processor dictionary
+    global_processors = {
+        "standard": standard_processor,
+        "lightning": lightning_processor if has_lightning else standard_processor
+    }
     
     @app.websocket("/ws/{client_type}/{stream_id}")
-    async def websocket_endpoint(websocket: WebSocket, client_type: str, stream_id: str):
+    async def websocket_endpoint(
+        websocket: WebSocket, 
+        client_type: str, 
+        stream_id: str,
+        processor_type: str = Query("standard", description="Processor type: 'standard' or 'lightning'")
+    ):
+        # Validate processor type
+        if processor_type not in global_processors:
+            logger.warning(f"Invalid processor type: {processor_type}, using standard")
+            processor_type = "standard"
+            
+        # If lightning is requested but not available, fall back to standard
+        if processor_type == "lightning" and not has_lightning:
+            logger.warning("Lightning processor requested but not available, falling back to standard")
+            processor_type = "standard"
+            
+        logger.info(f"Using {processor_type} processor for stream {stream_id}")
+        
         await websocket.accept()
         
         # Initialize connections for this stream
@@ -65,8 +119,20 @@ def websocket_server():
                 streams[stream_id] = {
                     "processing": False,
                     "latest_frame": None,
-                    "style_prompt": "A painting in the style of van Gogh's 'Starry Night'"  # Default prompt
+                    "style_prompt": DEFAULT_STYLE_PROMPT,
+                    "processor_type": processor_type
                 }
+            else:
+                # Update processor type for existing stream
+                streams[stream_id]["processor_type"] = processor_type
+                
+            # Notify broadcaster of selected processor type
+            await websocket.send_json({
+                "type": "processor_info",
+                "processor_type": processor_type,
+                "message": f"Using {processor_type} processor for image processing"
+            })
+            
         elif client_type == "viewer":
             active_connections[stream_id]["viewers"].append(websocket)
             logger.info(f"Viewer connected to stream {stream_id}")
@@ -74,9 +140,12 @@ def websocket_server():
             # Send the current style prompt to new viewer
             if stream_id in streams and "style_prompt" in streams[stream_id]:
                 current_prompt = streams[stream_id]["style_prompt"]
+                current_processor = streams[stream_id].get("processor_type", "standard")
+                
                 await websocket.send_json({
                     "type": "style_updated",
-                    "prompt": current_prompt
+                    "prompt": current_prompt,
+                    "processor_type": current_processor
                 })
                 logger.info(f"Sent current style prompt to new viewer for stream {stream_id}: '{current_prompt}'")
         else:
@@ -136,13 +205,18 @@ def websocket_server():
                         # Mark as processing
                         streams[stream_id]["processing"] = True
                         
+                        # Get the appropriate processor
+                        current_processor_type = streams[stream_id].get("processor_type", "standard")
+                        processor = global_processors[current_processor_type]
+                        
                         # Process frame asynchronously
                         asyncio.create_task(
                             process_and_broadcast_frame(
                                 stream_id, 
                                 streams[stream_id]["latest_frame"],
                                 active_connections[stream_id]["viewers"],
-                                global_processor  # Pass the existing processor
+                                processor,
+                                current_processor_type
                             )
                         )
                 
@@ -180,6 +254,50 @@ def websocket_server():
                             except Exception as e:
                                 logger.error(f"Error notifying viewer of style update: {e}")
                 
+                # Handle processor type updates from broadcaster
+                elif data["type"] == "update_processor" and client_type == "broadcaster":
+                    new_processor_type = data.get("processor_type", "standard")
+                    
+                    # Validate processor type
+                    if new_processor_type not in global_processors:
+                        logger.warning(f"Invalid processor type: {new_processor_type}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Invalid processor type: {new_processor_type}"
+                        })
+                        continue
+                    
+                    # If lightning is requested but not available, return an error
+                    if new_processor_type == "lightning" and not has_lightning:
+                        logger.warning("Lightning processor requested but not available")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Lightning processor is not available on this server"
+                        })
+                        continue
+                    
+                    # Update the processor type for this stream
+                    if stream_id in streams:
+                        old_processor_type = streams[stream_id].get("processor_type", "standard")
+                        streams[stream_id]["processor_type"] = new_processor_type
+                        logger.info(f"Updated processor type for stream {stream_id}: '{old_processor_type}' -> '{new_processor_type}'")
+                        
+                        # Confirm to the broadcaster
+                        await websocket.send_json({
+                            "type": "processor_updated",
+                            "processor_type": new_processor_type
+                        })
+                        
+                        # Also notify viewers about the processor change
+                        for viewer in active_connections[stream_id]["viewers"]:
+                            try:
+                                await viewer.send_json({
+                                    "type": "processor_updated",
+                                    "processor_type": new_processor_type
+                                })
+                            except Exception as e:
+                                logger.error(f"Error notifying viewer of processor update: {e}")
+                
                 elif data["type"] == "ping":
                     await websocket.send_json({"type": "pong"})
                 
@@ -192,6 +310,16 @@ def websocket_server():
                             "prompt": current_prompt
                         })
                         logger.info(f"Sent current style prompt in response to request for stream {stream_id}: '{current_prompt}'")
+                
+                # Handle request for processor info
+                elif data["type"] == "get_processor_info":
+                    if stream_id in streams and "processor_type" in streams[stream_id]:
+                        current_processor = streams[stream_id]["processor_type"]
+                        await websocket.send_json({
+                            "type": "processor_info",
+                            "processor_type": current_processor
+                        })
+                        logger.info(f"Sent processor info in response to request for stream {stream_id}: '{current_processor}'")
         
         except WebSocketDisconnect:
             # Remove connection on disconnect
@@ -210,7 +338,7 @@ def websocket_server():
                     del streams[stream_id]
                 logger.info(f"Stream {stream_id} cleaned up")
     
-    async def process_and_broadcast_frame(stream_id, frame_data, viewers, processor):
+    async def process_and_broadcast_frame(stream_id, frame_data, viewers, processor, processor_type):
         """Process a frame and broadcast to all viewers"""
         try:
             # Process the frame using the shared processor
@@ -219,7 +347,7 @@ def websocket_server():
                 
                 # Use the stream-specific prompt instead of hardcoded one
                 current_prompt = streams[stream_id]["style_prompt"]
-                logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}'")
+                logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}' using {processor_type} processor")
                 
                 processed_base64 = await process_base64_frame(
                     frame_data, 
@@ -228,10 +356,10 @@ def websocket_server():
                 )
                 processing_time = asyncio.get_event_loop().time() - processing_start
                 
-                logger.info(f"Frame for stream {stream_id} processed in {processing_time:.2f}s")
+                logger.info(f"Frame for stream {stream_id} processed in {processing_time:.2f}s using {processor_type} processor")
                 
                 # Broadcast to all viewers
-                await broadcast_frame(stream_id, processed_base64, viewers)
+                await broadcast_frame(stream_id, processed_base64, viewers, processor_type=processor_type)
             except Exception as e:
                 logger.error(f"Frame processing error: {e}")
                 # Capture and log traceback
@@ -254,7 +382,7 @@ def websocket_server():
                     frame_data = f"data:image/jpeg;base64,{frame_data}"
                     logger.debug(f"Added data URL prefix to original frame for error fallback")
                 
-                await broadcast_frame(stream_id, frame_data, viewers, is_original=True)
+                await broadcast_frame(stream_id, frame_data, viewers, is_original=True, processor_type=processor_type)
             
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
@@ -266,16 +394,22 @@ def websocket_server():
                 # If there's a new frame waiting, process it immediately
                 if streams[stream_id]["latest_frame"] != frame_data:
                     streams[stream_id]["processing"] = True
+                    
+                    # Get the current processor type
+                    current_processor_type = streams[stream_id].get("processor_type", "standard")
+                    processor = global_processors[current_processor_type]
+                    
                     asyncio.create_task(
                         process_and_broadcast_frame(
                             stream_id, 
                             streams[stream_id]["latest_frame"],
                             viewers,
-                            processor  # Pass the existing processor
+                            processor,
+                            current_processor_type
                         )
                     )
     
-    async def broadcast_frame(stream_id, processed_frame, viewers, is_original=False):
+    async def broadcast_frame(stream_id, processed_frame, viewers, is_original=False, processor_type="standard"):
         """Broadcast a processed frame to all viewers"""
         # Make a copy of the viewers list to avoid modification during iteration
         current_viewers = viewers.copy()
@@ -301,7 +435,8 @@ def websocket_server():
                     "streamId": stream_id,
                     "frame": processed_frame,
                     "timestamp": asyncio.get_event_loop().time(),
-                    "is_original": is_original
+                    "is_original": is_original,
+                    "processor_type": processor_type
                 }
                 
                 # Include style prompt with each frame if available
@@ -328,8 +463,21 @@ def websocket_server():
             "active_streams": [{
                 "id": stream_id,
                 "broadcasters": len(conns["broadcasters"]),
-                "viewers": len(conns["viewers"])
+                "viewers": len(conns["viewers"]),
+                "processor_type": streams[stream_id].get("processor_type", "standard") if stream_id in streams else "standard"
             } for stream_id, conns in active_connections.items()]
+        }
+    
+    @app.get("/processors")
+    async def get_available_processors():
+        """Return information about the available processors"""
+        processors = ["standard"]
+        if has_lightning:
+            processors.append("lightning")
+            
+        return {
+            "available_processors": processors,
+            "default_processor": "standard"
         }
     
     return app
