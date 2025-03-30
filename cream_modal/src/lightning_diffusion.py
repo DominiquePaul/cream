@@ -269,9 +269,9 @@ class LightningDiffusionProcessor:
         self,
         frame_data: bytes,
         prompt: str,
-        negative_prompt: str, #= "ugly, deformed, disfigured, poor details, bad anatomy",
+        negative_prompt: str | None, #= "ugly, deformed, disfigured, poor details, bad anatomy",
         guidance_scale: float = 1.0
-    ) -> tuple[bytes, bytes]:
+    ) -> tuple[bytes, Image.Image | None]:
         """
         Process a single frame with SDXL-Lightning.
         
@@ -288,7 +288,7 @@ class LightningDiffusionProcessor:
         # Validate input
         if not frame_data or len(frame_data) == 0:
             logger.error("Empty frame data received")
-            return frame_data
+            return frame_data, None
             
         # Convert bytes to PIL Image
         input_buffer = io.BytesIO(frame_data)
@@ -328,7 +328,7 @@ class LightningDiffusionProcessor:
             # Make sure pipe is initialized before calling it
             if self.pipe is None:
                 logger.error("Pipeline was not properly initialized")
-                return frame_data
+                return frame_data, None
             
             # Process with the appropriate pipeline
             generation_start = time.time()
@@ -365,7 +365,7 @@ class LightningDiffusionProcessor:
                     # Standard img2img without ControlNet
                     if not isinstance(self.pipe, (StableDiffusionXLImg2ImgPipeline, StableDiffusionXLPipeline, StableDiffusionXLControlNetPipeline)):
                         logger.error(f"Pipeline type doesn't match the requested operation (Img2Img). Type found: {type(self.pipe)}")
-                        return frame_data
+                        return frame_data, None
                     
                     logger.info(f"Processing with img2img pipeline, steps={self.num_steps}, strength={self.strength}")
                     with logger.span("Processing with img2img pipeline"):
@@ -379,7 +379,7 @@ class LightningDiffusionProcessor:
                         )
             except Exception as e:
                 logger.error(f"Error during inference: {e}")
-                return frame_data
+                return frame_data, None
             
             self.timings['inference'] = time.time() - generation_start
             logger.info(f"Inference completed in {self.timings['inference']:.2f}s")
@@ -390,6 +390,10 @@ class LightningDiffusionProcessor:
                 result_image = output.images[0]
             elif isinstance(output, (tuple, list)) and len(output) > 0:
                 result_image = output[0] if isinstance(output[0], Image.Image) else None
+            
+            if result_image is None:
+                logger.error("No result image found")
+                raise ValueError(f"Unexpected output type: {type(output)}")
                 
             # # Resize back to original dimensions
             # logger.info(f"Resizing result back to original dimensions: {original_width}x{original_height}")
@@ -417,7 +421,7 @@ class LightningDiffusionProcessor:
             import traceback
             logger.error(traceback.format_exc())
             # Return original frame on error
-            return frame_data
+            return frame_data, None
 
     def get_stats(self) -> dict[str, float]:
         """Get processing statistics."""
@@ -514,7 +518,8 @@ def get_lightning_processor(
 async def process_base64_frame(
     base64_frame: str, 
     processor: LightningDiffusionProcessor,
-    prompt: str
+    prompt: str,
+    negative_prompt: str | None
 ) -> str:
     """
     Process a base64 encoded frame and return the result as base64.
@@ -552,7 +557,7 @@ async def process_base64_frame(
             return base64_frame
             
         # Process the frame
-        processed_data = await processor.process_frame(img_data, prompt=prompt)
+        processed_data, depth_image = await processor.process_frame(img_data, prompt=prompt, negative_prompt=negative_prompt)
         
         # Encode back to base64
         processed_base64 = base64.b64encode(processed_data).decode('utf-8')
@@ -574,10 +579,9 @@ async def apply_lightning_diffusion(
     strength: float,
     num_steps: int,
     use_controlnet: bool,
-    negative_prompt: str, #= "ugly, deformed, disfigured, poor details, bad anatomy",
+    negative_prompt: str | None, #= "ugly, deformed, disfigured, poor details, bad anatomy",
     guidance_scale: float = 1.0,
-    return_depth_map: bool = False
-) -> bytes | tuple[bytes, bytes]:
+) -> tuple[bytes, Image.Image | None]:
     """
     Apply the SDXL Lightning diffusion model to an image.
     

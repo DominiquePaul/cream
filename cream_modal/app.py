@@ -43,7 +43,7 @@ def websocket_server():
     logger.info("Initializing global image processors for WebSocket server...")
     
     # Configuration for both processors
-    processor_config = {
+    standard_processor_config = {
         "use_controlnet": True,
         "style_prompt": DEFAULT_STYLE_PROMPT,
         "strength": 0.9,
@@ -52,6 +52,14 @@ def websocket_server():
         "image_size": 512,
         "processing_size": 768
     }
+
+    lightning_processor_config = {
+        "use_controlnet": True,
+        "style_prompt": DEFAULT_STYLE_PROMPT,
+        "strength": 0.9,
+        "guidance_scale": 1.0,
+        "negative_prompt": "ugly, deformed, disfigured, poor details, bad anatomy",
+    }
     
     # Standard processor with more steps
     standard_processor = get_diffusion_processor(
@@ -59,29 +67,20 @@ def websocket_server():
         model_name="runwayml/stable-diffusion-v1-5",
         controlnet_model_name="lllyasviel/control_v11f1p_sd15_depth",
         num_steps=25,
-        **processor_config
+        **standard_processor_config
     )
     
     # Lightning processor with fewer steps
-    try:
-        lightning_processor = get_diffusion_processor(
-            processor_type="lightning",
-            num_steps=4,  # Lightning works better with fewer steps
-            **processor_config
-        )
-        has_lightning = True
-        logger.info("Lightning processor initialized successfully")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Lightning processor: {e}")
-        has_lightning = False
-        lightning_processor = None
-    
-    logger.info("Image processors initialized successfully")
-    
+    lightning_processor = get_diffusion_processor(
+        processor_type="lightning",
+        num_steps=4,  # Lightning works better with fewer steps
+        **lightning_processor_config
+    )
+
     # Global processor dictionary
     global_processors = {
         "standard": standard_processor,
-        "lightning": lightning_processor if has_lightning else standard_processor
+        "lightning": lightning_processor
     }
     
     @app.websocket("/ws/{client_type}/{stream_id}")
@@ -89,18 +88,13 @@ def websocket_server():
         websocket: WebSocket, 
         client_type: str, 
         stream_id: str,
-        processor_type: str = Query("standard", description="Processor type: 'standard' or 'lightning'")
+        processor_type: str = Query("lightning", description="Processor type: 'standard' or 'lightning'")
     ):
         # Validate processor type
         if processor_type not in global_processors:
             logger.warning(f"Invalid processor type: {processor_type}, using standard")
             processor_type = "standard"
-            
-        # If lightning is requested but not available, fall back to standard
-        if processor_type == "lightning" and not has_lightning:
-            logger.warning("Lightning processor requested but not available, falling back to standard")
-            processor_type = "standard"
-            
+                
         logger.info(f"Using {processor_type} processor for stream {stream_id}")
         
         await websocket.accept()
@@ -266,15 +260,7 @@ def websocket_server():
                             "message": f"Invalid processor type: {new_processor_type}"
                         })
                         continue
-                    
-                    # If lightning is requested but not available, return an error
-                    if new_processor_type == "lightning" and not has_lightning:
-                        logger.warning("Lightning processor requested but not available")
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Lightning processor is not available on this server"
-                        })
-                        continue
+                
                     
                     # Update the processor type for this stream
                     if stream_id in streams:
@@ -471,13 +457,11 @@ def websocket_server():
     @app.get("/processors")
     async def get_available_processors():
         """Return information about the available processors"""
-        processors = ["standard"]
-        if has_lightning:
-            processors.append("lightning")
+        processors = ["standard", "lightning"]
             
         return {
             "available_processors": processors,
-            "default_processor": "standard"
+            "default_processor": "lightning"
         }
     
     return app

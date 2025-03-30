@@ -19,7 +19,8 @@ async def generate_image(
     prompt: str,
     strength: float,
     steps: int,
-    use_controlnet: bool
+    use_controlnet: bool,
+    negative_prompt: str | None
 ):
     """
     Generate an image using SDXL-Lightning model.
@@ -52,9 +53,8 @@ async def generate_image(
         strength=strength,
         num_steps=steps,
         use_controlnet=use_controlnet,
-        negative_prompt=None, # "ugly, deformed, disfigured, poor details, bad anatomy",
-        return_depth_map=True  # Add parameter to return depth map
-    )
+        negative_prompt=negative_prompt, 
+    ) 
     
     # Check if we have both processed image and depth map
     if isinstance(result, tuple) and len(result) == 2:
@@ -114,7 +114,8 @@ def run_generate(
         prompt=prompt,
         strength=strength,
         steps=steps,
-        use_controlnet=controlnet
+        use_controlnet=controlnet,
+        negative_prompt=None
     ))
     asyncio.run(generate_image(
         input_image_path=input,
@@ -122,7 +123,8 @@ def run_generate(
         prompt=prompt,
         strength=strength,
         steps=steps,
-        use_controlnet=controlnet
+        use_controlnet=controlnet,
+        negative_prompt=None
     ))
     
 

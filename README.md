@@ -3,20 +3,24 @@
 
 ### Timeline:
 
-| Date | Milestone |
+| Date | Goal |
 |------|-----------|
 | Monday | (a) Understand how well img2img could work and which network to use ✅</br>(b) Write simple class/function for style transfer ✅ |
 | Tuesday | (a) design infrastructure for streaming ✅</br>(b) minimal website with streamer and viewer page ✅</br>(c) deploy website to live URL and set up CD ✅</br>(d) deploy vanilla webscoket server ✅</br>(e) Users can create and view livestream via website ✅ |
 | Wednesday | ... |
 | Thursday | ... |
 | Friday | (a) Deploy websocket server on modal.com for autoscaling ✅</br>(b) apply image transformations to streamed images with H100 GPU on modal ✅|
-| Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation ✅</br>(c) improve speed of image transformations </br>(d) add registration/login for streamers </br>(e) streamers can purchase credits for streaming via stripe checkout |
-| Sunday | (a) Prettify app </br>(b) Create docker image to run stream from raspberry pi </br>(c) [*buffer for anything else*] |
+| Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation ✅</br>(c) improve speed of image transformations ✅</br> |
+| Sunday | (a) Integrate lightning diffusion code into modal.com deployment </br>(b) add registration/login for streamers </br>(c) streamers can purchase credits for streaming via stripe checkout </br>(d) Prettify app </br>(e) Create docker image to run stream from raspberry pi </br>(f) [*buffer for anything else*] |
 
 
 - Streamer can see stream output of themselves via a toggle
 - Streamer can see number of viewers
 - Streamer can enable users to submit style requests and either approve them or set them to auto-approve.
+- Add some kind of admin dashboard for user analytics
+  - How many streams created
+  - How many different IPs tuned in
+  - Most concurrent viewers
 
 ### Ideas for the near future
 

@@ -6,6 +6,7 @@ processor and the SDXL Lightning diffusion processor.
 """
 
 from typing import Optional, Union, Tuple, Literal
+from PIL import Image
 
 from src.utils.logger import logger
 
@@ -92,7 +93,7 @@ def get_diffusion_processor(
 async def process_base64_frame(
     base64_frame: str,
     processor: Union[LivestreamImageProcessor, LightningDiffusionProcessor],
-    prompt: Optional[str] = None,
+    prompt: str
 ) -> str:
     """
     Process a base64 encoded frame using the provided processor.
@@ -124,8 +125,8 @@ async def process_base64_frame(
 
 async def apply_diffusion(
     img_data: bytes,
+    prompt: str,
     processor_type: ProcessorType = "standard",
-    prompt: Optional[str] = None,
     negative_prompt: str = "ugly, deformed, disfigured, poor details, bad anatomy",
     guidance_scale: float = 7.0,
     use_controlnet: bool = True,
@@ -133,7 +134,7 @@ async def apply_diffusion(
     strength: float = 0.7,
     num_steps: int = 25,
     output_size: Optional[Tuple[int, int]] = None
-) -> bytes:
+) -> tuple[bytes, Image.Image | None]:
     """
     Apply diffusion to an image using either standard or lightning processor.
     
@@ -162,10 +163,8 @@ async def apply_diffusion(
             negative_prompt=negative_prompt,
             guidance_scale=guidance_scale,
             use_controlnet=use_controlnet,
-            style_prompt=style_prompt,
             strength=strength,
             num_steps=num_steps,
-            output_size=output_size
         )
     elif processor_type == "standard" and HAS_STANDARD_PROCESSOR:
         from src.standard_diffusion import apply_diffusion_model

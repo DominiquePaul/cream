@@ -240,9 +240,9 @@ class LivestreamImageProcessor:
         self,
         frame_data: bytes,
         prompt: Optional[str] = None,
-        negative_prompt: str = "ugly, deformed, disfigured, poor details, bad anatomy",
+        negative_prompt: str | None = None,
         guidance_scale: float = 7.0,
-    ) -> bytes:
+    ) -> tuple[bytes, Image.Image | None]:
         """
         Process a single frame for livestreaming.
         
@@ -264,7 +264,7 @@ class LivestreamImageProcessor:
         # Validate input
         if not frame_data or len(frame_data) == 0:
             logger.info("Error: Empty frame data received")
-            return frame_data
+            return frame_data, None
             
         logger.info(f"Processing frame with {len(frame_data)} bytes")
             
@@ -283,7 +283,7 @@ class LivestreamImageProcessor:
             # Store original dimensions to restore later
             original_width, original_height = input_image.size
         except Exception as e:
-            logger.info(f"Error opening image: {e}")
+            logger.error(f"Error opening image: {e}")
             # Try to get more info about the data
             try:
                 header_bytes = frame_data[:20]
@@ -292,7 +292,8 @@ class LivestreamImageProcessor:
             except Exception:
                 pass
             # Return original frame on error
-            return frame_data
+
+            return frame_data, None
         
         # Resize for processing while maintaining aspect ratio
         # Using a balanced size that's good for diffusion model performance
@@ -363,6 +364,7 @@ class LivestreamImageProcessor:
                 ).images[0]
                 generation_time = time.time() - generation_start
                 logger.info(f"Image generation took {generation_time:.2f}s")
+                depth_image = None
             
             # Resize back to original dimensions
             logger.info(f"Resizing result back to original dimensions: {original_width}x{original_height}")
@@ -383,14 +385,14 @@ class LivestreamImageProcessor:
             # Free memory
             torch.cuda.empty_cache()
                 
-            return processed_data
+            return processed_data, depth_image
             
         except Exception as e:
             logger.info(f"Error processing frame: {e}")
             import traceback
             traceback.print_exc()
             # Return original frame on error
-            return frame_data
+            return frame_data, None
 
     def get_stats(self) -> Dict[str, float]:
         """Get processing statistics."""
@@ -455,7 +457,7 @@ async def process_base64_frame(
             return base64_frame
             
         # Process the frame
-        processed_data = await processor.process_frame(img_data, prompt=prompt)
+        processed_data, depth_image = await processor.process_frame(img_data, prompt=prompt)
         
         # Encode back to base64
         processed_base64 = base64.b64encode(processed_data).decode('utf-8')
@@ -552,14 +554,14 @@ def get_processor(
 # For modal.com integration
 async def apply_diffusion_model(
     img_data: bytes,
-    prompt: Optional[str] = None,
-    negative_prompt: str = "ugly, deformed, disfigured, poor details, bad anatomy",
+    prompt: str,
+    negative_prompt: str | None = "ugly, deformed, disfigured, poor details, bad anatomy",
     guidance_scale: float = 7.0,
     use_controlnet: bool = True,
     style_prompt: str = "Van Gogh style painting",
     strength: float = 0.6,
     output_size: Optional[tuple] = None
-) -> bytes:
+) -> tuple[bytes, Image.Image | None]:
     """
     Apply the diffusion model to an image.
     This function is called from the WebSocket handler.
@@ -585,7 +587,7 @@ async def apply_diffusion_model(
     )
     
     # Process the frame
-    processed_bytes = await proc.process_frame(
+    processed_bytes, depth_image = await proc.process_frame(
         img_data,
         prompt=prompt,
         negative_prompt=negative_prompt,
@@ -611,10 +613,10 @@ async def apply_diffusion_model(
             # Convert back to bytes
             resized_buffer = io.BytesIO()
             resized_image.save(resized_buffer, format="JPEG", quality=95)
-            return resized_buffer.getvalue()
+            return resized_buffer.getvalue(), depth_image
         except Exception as e:
             logger.error(f"Error resizing output image: {e}")
             # Return the processed image without resizing on error
-            return processed_bytes
+            return processed_bytes, depth_image
     
-    return processed_bytes
+    return processed_bytes, depth_image
