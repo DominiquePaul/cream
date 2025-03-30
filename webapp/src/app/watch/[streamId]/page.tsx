@@ -13,6 +13,7 @@ export default function WatchPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("Connecting...");
+  const statusRef = useRef(status);
   const [lastFrameTimestamp, setLastFrameTimestamp] = useState<number | null>(null);
   const [framesReceived, setFramesReceived] = useState(0);
   const [imageData, setImageData] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function WatchPage() {
   const [imageLoaded, setImageLoaded] = useState(false);
   const router = useRouter();
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const connectedRef = useRef(false);
+  const connectedRef = useRef(connected);
   const framesReceivedRef = useRef(0);
   const frameTimestampsRef = useRef<Date[]>([]);
   const [stylePrompt, setStylePrompt] = useState<string>("Default style");
@@ -38,6 +39,10 @@ export default function WatchPage() {
   useEffect(() => {
     framesReceivedRef.current = framesReceived;
   }, [framesReceived]);
+  
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   
   // Function to establish WebSocket connection
   const connectWebSocket = useCallback(() => {
@@ -188,7 +193,7 @@ export default function WatchPage() {
           }
           
           // Always update status to show we're receiving frames
-          if (status === "Connected, joining stream..." || status === "Connecting..." || framesReceivedRef.current === 0) {
+          if (statusRef.current === "Connected, joining stream..." || statusRef.current === "Connecting..." || framesReceivedRef.current === 0) {
             setStatus("Receiving AI-processed stream");
             console.log("WATCH DEBUG: Updating status to 'Receiving AI-processed stream'");
           }
@@ -419,7 +424,7 @@ export default function WatchPage() {
         }
       }
     };
-  }, [streamId, lastFrameTime, imageData, nextImageData]);
+  }, [streamId, lastFrameTime, imageData, nextImageData, aspectRatio]);
   
   // Set up the WebSocket connection on mount or streamId change
   useEffect(() => {
@@ -584,7 +589,7 @@ export default function WatchPage() {
                     setImageData(nextImageData);
                     
                     // Update status if this is the first frame
-                    if (framesReceivedRef.current <= 3 && status === "Connected, joining stream...") {
+                    if (framesReceivedRef.current <= 3 && statusRef.current === "Connected, joining stream...") {
                       setStatus("Receiving AI-processed stream");
                     }
                   }}
@@ -595,7 +600,7 @@ export default function WatchPage() {
                     setImageData(nextImageData);
                     
                     // Ensure status is updated even if there was an error
-                    if (status === "Connected, joining stream...") {
+                    if (statusRef.current === "Connected, joining stream...") {
                       setStatus("Receiving AI-processed stream");
                     }
                   }}
@@ -678,7 +683,7 @@ export default function WatchPage() {
                           setImageData(nextImageData);
                           
                           // Update status if this is the first frame
-                          if (framesReceivedRef.current <= 3 && status === "Connected, joining stream...") {
+                          if (framesReceivedRef.current <= 3 && statusRef.current === "Connected, joining stream...") {
                             setStatus("Receiving AI-processed stream");
                           }
                         }}
@@ -689,7 +694,7 @@ export default function WatchPage() {
                           setImageData(nextImageData);
                           
                           // Ensure status is updated even if there was an error
-                          if (status === "Connected, joining stream...") {
+                          if (statusRef.current === "Connected, joining stream...") {
                             setStatus("Receiving AI-processed stream");
                           }
                         }}
@@ -737,7 +742,7 @@ export default function WatchPage() {
                 )
               ) : (
                 <div className="text-white text-center p-8">
-                  <p className="text-xl">{status}</p>
+                  <p className="text-xl">{statusRef.current}</p>
                   {error && <p className="text-red-400 mt-2">{error}</p>}
                 </div>
               )}
@@ -752,7 +757,7 @@ export default function WatchPage() {
             
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
               <div className="flex justify-between items-center mb-1">
-                <p className="text-sm font-medium">Status: {status}</p>
+                <p className="text-sm font-medium">Status: {statusRef.current}</p>
                 <p className="text-sm font-medium text-green-600">{wsConnected ? "Connected" : "Disconnected"}</p>
               </div>
               

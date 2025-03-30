@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useRef, useState, useCallback } from "react";
+import Image from "next/image";
 
 // Define global types for the window object
 declare global {
@@ -32,10 +33,12 @@ export default function BroadcastPage() {
   const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
-  const [strength, setStrength] = useState(0.9); // Default strength value
-  const [updatingStrength, setUpdatingStrength] = useState(false);
   const processingTimesRef = useRef<number[]>([]);
-
+  
+  // Add these new states for processed frame viewing
+  const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [showProcessedView, setShowProcessedView] = useState(false);
+  
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
     // Get the current streamId from the ref instead of the state
@@ -175,6 +178,14 @@ export default function BroadcastPage() {
           const avg = window.frameProcessingTimes.reduce((a, b) => a + b, 0) / window.frameProcessingTimes.length;
           
           setStatus(`Processed frame at ${timeSinceLastFrame.toFixed(1)}s (avg: ${avg.toFixed(1)}s) - Frame #${frameCounterRef.current - 1}`);
+          
+          // Store the processed frame data if it exists and is a valid data URL
+          if (data.frame && typeof data.frame === 'string' && data.frame.startsWith('data:image')) {
+            console.log("Setting processed image data", data.frame.substring(0, 50) + "...");
+            setProcessedImage(data.frame);
+          } else {
+            console.warn("Received invalid frame data:", data.frame ? data.frame.substring(0, 50) + "..." : "undefined");
+          }
         }
         else if (data.type === 'frame_skipped') {
           // Server skipped a frame (already processing)
@@ -199,13 +210,6 @@ export default function BroadcastPage() {
           setStylePrompt(data.prompt);
           setUpdatingPrompt(false);
           setStatus(`Style updated to: "${data.prompt}"`);
-        }
-        else if (data.type === 'strength_updated') {
-          // Handle confirmation of strength update
-          console.log("Strength updated:", data.strength);
-          setStrength(data.strength);
-          setUpdatingStrength(false);
-          setStatus(`Strength updated to: ${data.strength}`);
         }
       } catch (err) {
         console.error("Error parsing WebSocket message:", err);
@@ -349,6 +353,25 @@ export default function BroadcastPage() {
     };
   }, []);
 
+  // Add a toggle view handler to properly handle the view switch
+  const toggleView = useCallback(() => {
+    setShowProcessedView(prev => {
+      const newState = !prev;
+      
+      // If switching back to camera view, ensure video is playing
+      if (!newState && videoRef.current) {
+        console.log("Switching back to camera view, ensuring video is playing");
+        // Ensure video element is visible and playing
+        videoRef.current.style.display = 'block';
+        videoRef.current.play().catch(err => {
+          console.error("Error playing video when switching back to camera view:", err);
+        });
+      }
+      
+      return newState;
+    });
+  }, []);
+
   const startStream = async () => {
     setError(null);
     setStatus("Starting stream...");
@@ -462,30 +485,6 @@ export default function BroadcastPage() {
     }
   };
 
-  // Function to update the strength parameter
-  const updateStrength = (newStrength: number) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError("WebSocket connection not open");
-      return;
-    }
-    
-    try {
-      setUpdatingStrength(true);
-      setStatus("Updating strength parameter...");
-      
-      wsRef.current.send(JSON.stringify({
-        type: 'update_strength',
-        strength: newStrength
-      }));
-      
-      // The actual update will be confirmed by the server response
-    } catch (err) {
-      console.error("Error sending strength update:", err);
-      setError("Failed to update strength: " + (err instanceof Error ? err.message : String(err)));
-      setUpdatingStrength(false);
-    }
-  };
-
   return (
     <div className="container mx-auto px-2 flex items-center justify-center min-h-screen py-10">
       <Card className="w-full max-w-4xl">
@@ -503,12 +502,31 @@ export default function BroadcastPage() {
               position: "relative" 
             }}
           >
+            {/* Original webcam view */}
             <video
               ref={videoRef}
               className="absolute inset-0 w-full h-full object-contain"
+              style={{ display: showProcessedView ? 'none' : 'block' }}
               muted
               playsInline
             />
+            
+            {/* Processed image view */}
+            {processedImage && (
+              <Image 
+                src={processedImage}
+                alt="Processed stream"
+                fill
+                priority
+                unoptimized // Needed for data URLs
+                style={{ 
+                  objectFit: 'contain',
+                  display: showProcessedView ? 'block' : 'none'
+                }}
+              />
+            )}
+            
+            {/* Processing indicator overlay */}
             {processingFrame && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                 <div className="text-white text-center p-4">
@@ -516,6 +534,18 @@ export default function BroadcastPage() {
                   <p>Processing frame with AI diffusion model...</p>
                   <p className="text-sm text-gray-300">(Streaming at maximum possible frame rate)</p>
                 </div>
+              </div>
+            )}
+            
+            {/* View toggle button */}
+            {isStreaming && (
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={toggleView}
+                  className="px-3 py-2 bg-black/70 text-white text-sm rounded-md hover:bg-black/90 transition-colors"
+                >
+                  {showProcessedView ? "Show Camera" : "Show Processed View"}
+                </button>
               </div>
             )}
           </div>
@@ -530,6 +560,13 @@ export default function BroadcastPage() {
           
           {isStreaming && (
             <div className="space-y-2">
+              {/* View mode indicator */}
+              <div className="text-center text-sm font-medium">
+                Currently viewing: {showProcessedView ? 
+                  "AI-Processed Stream (what viewers see)" : 
+                  "Original Camera Feed"}
+              </div>
+              
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <p className="text-sm font-medium">Current Style:</p>
                 <p className="text-sm">{stylePrompt}</p>
@@ -555,30 +592,6 @@ export default function BroadcastPage() {
                 >
                   {updatingPrompt ? 'Updating...' : 'Update Style'}
                 </button>
-              </div>
-              
-              <div className="p-3 bg-purple-50 border border-purple-200 rounded-md">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium">Effect Strength: {(strength * 100).toFixed(0)}%</p>
-                  {updatingStrength && <p className="text-xs text-purple-600">Updating...</p>}
-                </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1.0"
-                  step="0.1"
-                  value={strength}
-                  onChange={(e) => {
-                    const newStrength = parseFloat(e.target.value);
-                    setStrength(newStrength);
-                    updateStrength(newStrength);
-                  }}
-                  className="w-full"
-                  disabled={!isStreaming || updatingStrength}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Lower values preserve more of the original image, higher values apply more stylization.
-                </p>
               </div>
               
               <div className="text-xs text-gray-500">
