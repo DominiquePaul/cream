@@ -3,7 +3,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useRef, useState, useCallback } from "react";
-import Image from "next/image";
 
 // Define global types for the window object
 declare global {
@@ -11,6 +10,10 @@ declare global {
     lastProcessedFrameTime?: Date;
     frameProcessingTimes?: number[];
     frameSkipCounter?: number;
+    frameFetcherInterval?: NodeJS.Timeout;
+    viewerWs?: WebSocket;
+    latestFrameRetryCount: number;
+    latestFrameRetryTimer?: NodeJS.Timeout;
   }
 }
 
@@ -21,23 +24,25 @@ export default function BroadcastPage() {
   const [streamId, setStreamId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("Idle");
+  const [status, setStatus] = useState("Initializing camera...");
   const frameCounterRef = useRef(0);
   const requestAnimationFrameRef = useRef<number | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const isStreamingRef = useRef(false);
   const currentStreamIdRef = useRef<string | null>(null);
   const frameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [processingFrame, setProcessingFrame] = useState(false);
+  const processingTimesRef = useRef<number[]>([]);
+  
+  // Image display states (adopting from watch page)
+  const [imageData, setImageData] = useState<string | null>(null); // Current displayed image
+  const [nextImageData, setNextImageData] = useState<string | null>(null); // Next image to display
+  const [showProcessedView, setShowProcessedView] = useState(false);
+  const isTogglingViewRef = useRef(false); // Add this ref outside the callback
+  
   const [aspectRatio, setAspectRatio] = useState("56.25%"); // Default 16:9 (9/16 * 100)
   const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
-  const processingTimesRef = useRef<number[]>([]);
-  
-  // Add these new states for processed frame viewing
-  const [processedImage, setProcessedImage] = useState<string | null>(null);
-  const [showProcessedView, setShowProcessedView] = useState(false);
   
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -74,6 +79,13 @@ export default function BroadcastPage() {
         paused: video.paused,
         ended: video.ended
       });
+      frameTimeoutRef.current = setTimeout(sendFrames, 500);
+      return;
+    }
+    
+    // If we're viewing the processed view, ensure we have a processed image before sending more frames
+    if (showProcessedView && !nextImageData && !imageData) {
+      console.log("Waiting for processed image before sending more frames");
       frameTimeoutRef.current = setTimeout(sendFrames, 500);
       return;
     }
@@ -134,89 +146,188 @@ export default function BroadcastPage() {
       // Retry after a delay if there was an error
       frameTimeoutRef.current = setTimeout(sendFrames, 2000);
     }
-  }, []);
+  }, [showProcessedView, imageData, nextImageData]);
 
-  // Add a handler for frame_skipped messages
-  // Update the onmessage handler to handle new message types
-  const setupMessageHandler = useCallback((ws: WebSocket) => {
-    ws.onmessage = (event) => {
+  // Setup message handler with enhanced error handling and debugging
+  const setupMessageHandler = useCallback(() => {
+    if (!wsRef.current) {
+      console.error("WebSocket not initialized");
+      return;
+    }
+
+    wsRef.current.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("Received WebSocket message:", data);
-        
-        if (data.type === 'processing_update') {
-          // Handle processing updates from server
-          setStatus(`Streaming: ${data.status || 'Processing frame...'}`);
-          setProcessingFrame(true);
-        }
-        else if (data.type === 'frame') {
-          // Server is sending back a processed frame
-          setProcessingFrame(false);
-          // Calculate time since last frame
-          const now = new Date();
-          const lastFrame = window.lastProcessedFrameTime || new Date(now.getTime() - 5000);
-          const timeSinceLastFrame = (now.getTime() - lastFrame.getTime()) / 1000;
-          window.lastProcessedFrameTime = now;
-          
-          // Track frame processing times
-          if (!window.frameProcessingTimes) {
-            window.frameProcessingTimes = [];
-          }
-          window.frameProcessingTimes.push(timeSinceLastFrame);
-          if (window.frameProcessingTimes.length > 10) {
-            window.frameProcessingTimes.shift();
-          }
-          
-          // Store processing time for adaptive frame rate
-          const newProcessingTimes = [...processingTimesRef.current, timeSinceLastFrame];
-          if (newProcessingTimes.length > 5) {
-            newProcessingTimes.shift(); // Keep last 5 values
-          }
-          processingTimesRef.current = newProcessingTimes;
-          
-          // Calculate average
-          const avg = window.frameProcessingTimes.reduce((a, b) => a + b, 0) / window.frameProcessingTimes.length;
-          
-          setStatus(`Processed frame at ${timeSinceLastFrame.toFixed(1)}s (avg: ${avg.toFixed(1)}s) - Frame #${frameCounterRef.current - 1}`);
-          
-          // Store the processed frame data if it exists and is a valid data URL
-          if (data.frame && typeof data.frame === 'string' && data.frame.startsWith('data:image')) {
-            console.log("Setting processed image data", data.frame.substring(0, 50) + "...");
-            setProcessedImage(data.frame);
-          } else {
-            console.warn("Received invalid frame data:", data.frame ? data.frame.substring(0, 50) + "..." : "undefined");
-          }
-        }
-        else if (data.type === 'frame_skipped') {
-          // Server skipped a frame (already processing)
-          console.log('Frame skipped by server:', data.message);
-          
-          if (!window.frameSkipCounter) {
-            window.frameSkipCounter = 0;
-          }
-          window.frameSkipCounter++;
-          
-          // Update UI with more information about the skipped frame
-          setStatus(`Frame queued: Current frame being AI-processed, this frame will be processed next`);
-        }
-        else if (data.type === 'error') {
-          console.error("Error from server:", data.message);
-          setError(data.message);
-          setStatus("Error: " + data.message);
-        }
-        else if (data.type === 'prompt_updated') {
-          // Handle confirmation of prompt update
-          console.log("Style prompt updated:", data.prompt);
+        console.log(`Received WebSocket message type: ${data.type}`);
+
+        // Handle different message types
+        if (data.type === "pong") {
+          console.log("Received pong response");
+        } else if (data.type === "processor_info") {
+          console.log(`Server is using processor: ${data.processor_type}`);
+        } else if (data.type === "prompt_updated") {
+          console.log(`Style prompt updated to: ${data.prompt}`);
           setStylePrompt(data.prompt);
           setUpdatingPrompt(false);
-          setStatus(`Style updated to: "${data.prompt}"`);
+        } else if (data.type === "subscription_confirmed") {
+          console.log("✅ Successfully subscribed to processed frames");
+        } else if (data.type === "unsubscription_confirmed") {
+          console.log("Successfully unsubscribed from processed frames");
+        } else if (data.type === "latest_frame") {
+          console.log("Received latest_frame response");
+          if (data.frame && typeof data.frame === 'string' && data.frame.startsWith('data:image')) {
+            console.log(`✅ Received latest frame of size: ${data.frame.length}`);
+            setNextImageData(data.frame);
+            setImageData(data.frame);
+          } else {
+            console.log("No latest frame available yet");
+          }
+        } else if (data.type === "frame" && data.processed === true) {
+          console.log(`✅ Received processed frame of size: ${data.frame.length}`);
+          if (showProcessedView && data.frame && typeof data.frame === 'string' && data.frame.startsWith('data:image')) {
+            // Set the image data directly for immediate display
+            setNextImageData(data.frame);
+            setImageData(data.frame);
+            console.log("Updated image data with processed frame");
+          }
+        } else if (data.type === "frame_skipped") {
+          console.log("Frame skipped by server:", data.message);
+        } else if (data.type === "error") {
+          console.error("Error from server:", data.message);
+          setError(data.message);
+        } else {
+          console.log("Other message type:", data.type);
         }
-      } catch (err) {
-        console.error("Error parsing WebSocket message:", err);
-        setError("Failed to parse server message");
+      } catch (error) {
+        console.error("Error handling WebSocket message:", error);
       }
     };
-  }, []);
+  }, [showProcessedView]);
+
+  // Image loading effect - adopted from watch page for proper image handling
+  useEffect(() => {
+    console.log(`🔄 Image loading effect triggered:
+    - nextImageData changed: ${!!nextImageData}
+    - imageData: ${!!imageData}
+    - Are they different: ${nextImageData !== imageData}`);
+    
+    if (nextImageData && nextImageData !== imageData) {
+      console.log("Starting image preload process");
+      
+      // Use a shorter timeout to show the next frame faster
+      const transitionTimeout = setTimeout(() => {
+        console.log("⏱️ Fallback timeout triggered - setting image data");
+        setImageData(nextImageData);
+      }, 50); // Much shorter transition for smoother updates
+      
+      // Create a new Image to preload
+      const preloadImg = new window.Image();
+      preloadImg.onload = () => {
+        // Clear timeout as image is ready now
+        console.log(`✅ Preload image loaded: ${preloadImg.width}x${preloadImg.height}`);
+        clearTimeout(transitionTimeout);
+        // Only update state after successful preload
+        setImageData(nextImageData);
+      };
+      preloadImg.onerror = (e: Event | string) => {
+        console.error("❌ Error preloading image:", e);
+        // Still update the image data even on error to avoid getting stuck
+        setImageData(nextImageData);
+      };
+      
+      // Start loading
+      console.log("Starting to load image...");
+      preloadImg.src = nextImageData;
+      console.log("Image src set");
+      
+      // Clean up function
+      return () => {
+        console.log("Cleaning up image loading effect");
+        clearTimeout(transitionTimeout);
+        preloadImg.onload = null;
+        preloadImg.onerror = null;
+      };
+    }
+  }, [nextImageData, imageData]);
+
+  // Add a toggle view handler to properly handle the view switch
+  const toggleView = useCallback(() => {
+    console.log("Toggle view called - syncing view state");
+    
+    if (isTogglingViewRef.current) {
+      console.log("Toggle already in progress, ignoring duplicate call");
+      return;
+    }
+    
+    isTogglingViewRef.current = true;
+    
+    // setTimeout to ensure React state is stable before we access it
+    setTimeout(() => {
+      setShowProcessedView(prevState => {
+        const newState = !prevState;
+        
+        console.log(`🔀 Toggling view: ${prevState ? 'processed' : 'camera'} -> ${newState ? 'processed' : 'camera'}`);
+        console.log("Current image state:", { 
+          hasImageData: !!imageData, 
+          hasNextImageData: !!nextImageData,
+          imageDataLength: imageData ? imageData.length : 0,
+          nextImageDataLength: nextImageData ? nextImageData.length : 0 
+        });
+        
+        // If switching to processed view, subscribe to processed frames
+        if (newState && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          console.log("Subscribing to processed frames");
+          wsRef.current.send(JSON.stringify({
+            type: "subscribe_to_processed_frames"
+          }));
+          
+          // Clear image state when toggling to processed view
+          setImageData(null);
+          setNextImageData(null);
+          
+          // Request the latest processed frame immediately
+          console.log("Requesting latest processed frame");
+          wsRef.current.send(JSON.stringify({
+            type: "get_latest_frame"
+          }));
+          
+          // Set up a continuous polling mechanism to get updates at the same rate as viewers
+          // This replaces the retry mechanism with a continuous poller
+          if (window.latestFrameRetryTimer) {
+            clearInterval(window.latestFrameRetryTimer);
+          }
+          
+          window.latestFrameRetryTimer = setInterval(() => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              console.log(`Polling: Requesting latest processed frame`);
+              wsRef.current.send(JSON.stringify({
+                type: "get_latest_frame"
+              }));
+            }
+          }, 1000); // Poll every second continuously
+        }
+        
+        // If switching back to camera view, unsubscribe from processed frames
+        if (!newState && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          console.log("Unsubscribing from processed frames");
+          wsRef.current.send(JSON.stringify({
+            type: "unsubscribe_from_processed_frames"
+          }));
+          
+          // Clear any polling timers
+          if (window.latestFrameRetryTimer) {
+            clearInterval(window.latestFrameRetryTimer);
+            window.latestFrameRetryTimer = undefined;
+          }
+        }
+        
+        return newState;
+      });
+      
+      // Reset toggle flag after state update
+      isTogglingViewRef.current = false;
+    }, 0);
+  }, [imageData, nextImageData]);
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
@@ -265,6 +376,10 @@ export default function BroadcastPage() {
         try {
           ws.send(JSON.stringify({ type: 'ping' }));
           console.log("Sent ping to test connection");
+          
+          // Test endpoint call - request server version to check communication
+          ws.send(JSON.stringify({ type: 'get_server_info' }));
+          console.log("Sent server info request to test bi-directional communication");
         } catch (err) {
           console.error("Error sending ping:", err);
         }
@@ -292,11 +407,11 @@ export default function BroadcastPage() {
         setTimeout(startSendingFrames, 100);
         
         // Setup message handler with our new handler
-        setupMessageHandler(ws);
+        setupMessageHandler();
       };
       
       // Replace the onmessage handler with our setup function call
-      setupMessageHandler(ws);
+      setupMessageHandler();
       
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
@@ -335,41 +450,35 @@ export default function BroadcastPage() {
     }
   }, [sendFrames, setupMessageHandler]);
   
-  // Clean up WebSocket on component unmount
+  // Clean up all WebSocket connections on component unmount
   useEffect(() => {
     return () => {
-      console.log("Cleaning up WebSocket connection on component unmount");
+      console.log("Cleaning up WebSocket connections on component unmount");
+      
       if (requestAnimationFrameRef.current) {
         cancelAnimationFrame(requestAnimationFrameRef.current);
         requestAnimationFrameRef.current = null;
       }
+      
       if (frameTimeoutRef.current) {
         clearTimeout(frameTimeoutRef.current);
         frameTimeoutRef.current = null;
       }
+      
       if (wsRef.current) {
         wsRef.current.close();
       }
-    };
-  }, []);
-
-  // Add a toggle view handler to properly handle the view switch
-  const toggleView = useCallback(() => {
-    setShowProcessedView(prev => {
-      const newState = !prev;
       
-      // If switching back to camera view, ensure video is playing
-      if (!newState && videoRef.current) {
-        console.log("Switching back to camera view, ensuring video is playing");
-        // Ensure video element is visible and playing
-        videoRef.current.style.display = 'block';
-        videoRef.current.play().catch(err => {
-          console.error("Error playing video when switching back to camera view:", err);
-        });
+      if (window.viewerWs) {
+        window.viewerWs.close();
+        window.viewerWs = undefined;
       }
       
-      return newState;
-    });
+      if (window.frameFetcherInterval) {
+        clearInterval(window.frameFetcherInterval);
+        window.frameFetcherInterval = undefined;
+      }
+    };
   }, []);
 
   const startStream = async () => {
@@ -502,6 +611,12 @@ export default function BroadcastPage() {
               position: "relative" 
             }}
           >
+            {/* For debugging */}
+            {(() => {
+              console.log(`Render: showProcessedView=${showProcessedView}, hasImageData=${!!imageData}, hasNextImageData=${!!nextImageData}`);
+              return null;
+            })()}
+            
             {/* Original webcam view */}
             <video
               ref={videoRef}
@@ -511,28 +626,79 @@ export default function BroadcastPage() {
               playsInline
             />
             
-            {/* Processed image view */}
-            {processedImage && (
-              <Image 
-                src={processedImage}
-                alt="Processed stream"
-                fill
-                priority
-                unoptimized // Needed for data URLs
-                style={{ 
-                  objectFit: 'contain',
-                  display: showProcessedView ? 'block' : 'none'
-                }}
-              />
+            {/* Processed image view - Using the same approach as watch page */}
+            {showProcessedView && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black">
+                {imageData ? (
+                  <div className="absolute inset-0 w-full h-full">
+                    <img
+                      src={imageData}
+                      alt="Processed stream"
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain'
+                      }}
+                      onLoad={() => {
+                        console.log("✅ Processed image loaded successfully");
+                      }}
+                      onError={(err) => {
+                        console.error("❌ Processed image failed to load", err);
+                      }}
+                    />
+                    
+                    <div className="absolute top-2 left-2 bg-black/70 text-white p-2 text-xs z-10 rounded-md">
+                      <p>Viewing processed stream | Updated: {new Date().toLocaleTimeString()}</p>
+                      
+                      <button 
+                        onClick={() => {
+                          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                            console.log("Manual refresh: Requesting latest processed frame");
+                            wsRef.current.send(JSON.stringify({
+                              type: "get_latest_frame"
+                            }));
+                          }
+                        }} 
+                        className="mt-1 px-2 py-1 bg-blue-500 hover:bg-blue-600 rounded text-xs"
+                      >
+                        Refresh Frame
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-white text-center p-4">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
+                    <p>Waiting for the first processed frame...</p>
+                    <p className="text-sm text-gray-300 mt-2">
+                      (This may take a few seconds as the AI model processes your video)
+                    </p>
+                    
+                    <button 
+                      onClick={() => {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                          console.log("Manual refresh: Requesting latest processed frame");
+                          wsRef.current.send(JSON.stringify({
+                            type: "get_latest_frame"
+                          }));
+                        }
+                      }} 
+                      className="mt-4 px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded"
+                    >
+                      Request Latest Frame
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             
             {/* Processing indicator overlay */}
-            {processingFrame && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                <div className="text-white text-center p-4">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
-                  <p>Processing frame with AI diffusion model...</p>
-                  <p className="text-sm text-gray-300">(Streaming at maximum possible frame rate)</p>
+            {false && !showProcessedView && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-20">
+                <div className="text-white text-center">
+                  <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-white mb-2"></div>
+                  <p>AI Processing...</p>
                 </div>
               </div>
             )}
@@ -544,7 +710,7 @@ export default function BroadcastPage() {
                   onClick={toggleView}
                   className="px-3 py-2 bg-black/70 text-white text-sm rounded-md hover:bg-black/90 transition-colors"
                 >
-                  {showProcessedView ? "Show Camera" : "Show Processed View"}
+                  {showProcessedView ? "Show Camera" : "Show what viewers are seeing"}
                 </button>
               </div>
             )}
@@ -560,13 +726,6 @@ export default function BroadcastPage() {
           
           {isStreaming && (
             <div className="space-y-2">
-              {/* View mode indicator */}
-              <div className="text-center text-sm font-medium">
-                Currently viewing: {showProcessedView ? 
-                  "AI-Processed Stream (what viewers see)" : 
-                  "Original Camera Feed"}
-              </div>
-              
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <p className="text-sm font-medium">Current Style:</p>
                 <p className="text-sm">{stylePrompt}</p>
@@ -611,18 +770,42 @@ export default function BroadcastPage() {
             <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
             <p className="text-sm">Note: Frames are continuously sent and processed at maximum possible speed</p>
             {streamId && (
-              <p className="text-sm mt-2">
-                Share this link to let others watch your stream:
-                <br />
-                <a
-                  href={`${window.location.origin}/watch/${streamId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline break-all"
-                >
-                  {`${window.location.origin}/watch/${streamId}`}
-                </a>
-              </p>
+              <>
+                <p className="text-sm mt-2">
+                  Share this link to let others watch your stream:
+                  <br />
+                  <a
+                    href={`${window.location.origin}/watch/${streamId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline break-all"
+                  >
+                    {`${window.location.origin}/watch/${streamId}`}
+                  </a>
+                </p>
+                <div className="mt-2">
+                  <button
+                    onClick={() => {
+                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                        console.log("🧪 Testing server connectivity");
+                        wsRef.current.send(JSON.stringify({ 
+                          type: 'ping', 
+                          message: "Testing server connection" 
+                        }));
+                        
+                        // Don't use get_latest_frame since it doesn't exist
+                        console.log("Only using ping for connection test (server doesn't support get_latest_frame)");
+                      } else {
+                        console.error("WebSocket not connected");
+                        setError("Cannot test connection: WebSocket not connected");
+                      }
+                    }}
+                    className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm"
+                  >
+                    Test Connection
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </CardContent>

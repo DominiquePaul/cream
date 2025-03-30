@@ -180,7 +180,9 @@ def websocket_server():
         
         # Initialize connections for this stream
         if stream_id not in active_connections:
-            active_connections[stream_id] = {"broadcasters": [], "viewers": []}
+            active_connections[stream_id] = {"broadcasters": [], "viewers": [], "broadcaster_viewers": []}
+        elif "broadcaster_viewers" not in active_connections[stream_id]:
+            active_connections[stream_id]["broadcaster_viewers"] = []
         
         # Add this connection to the right group
         if client_type == "broadcaster":
@@ -492,10 +494,64 @@ def websocket_server():
                                     "processor_type": current_processor
                                 })
                                 logger.info(f"Sent processor info in response to request for stream {stream_id}: '{current_processor}'")
+                    
+                    # Handle request for latest processed frame from broadcaster
+                    elif data["type"] == "get_latest_frame" and client_type == "broadcaster":
+                        with logger.span("get_latest_frame") as frame_span:
+                            if stream_id in streams and streams[stream_id].get("latest_processed_frame"):
+                                logger.info(f"Sending latest processed frame to broadcaster for stream {stream_id}")
+                                await websocket.send_json({
+                                    "type": "latest_frame",
+                                    "frame": streams[stream_id]["latest_processed_frame"]
+                                })
+                            else:
+                                logger.info(f"No processed frame available yet for stream {stream_id}")
+                                await websocket.send_json({
+                                    "type": "latest_frame",
+                                    "frame": None,
+                                    "message": "No processed frame available yet"
+                                })
+                                
+                    # Handle request to subscribe to processed frames
+                    elif data["type"] == "subscribe_to_processed_frames" and client_type == "broadcaster":
+                        with logger.span("subscribe_to_processed") as sub_span:
+                            # Add this broadcaster to a special list that will receive processed frames
+                            if stream_id not in active_connections:
+                                active_connections[stream_id] = {"broadcasters": [], "viewers": [], "broadcaster_viewers": []}
+                            elif "broadcaster_viewers" not in active_connections[stream_id]:
+                                active_connections[stream_id]["broadcaster_viewers"] = []
+                                
+                            active_connections[stream_id]["broadcaster_viewers"].append(websocket)
+                            logger.info(f"Broadcaster for stream {stream_id} subscribed to processed frames")
+                            
+                            await websocket.send_json({
+                                "type": "subscription_confirmed",
+                                "message": "You will now receive processed frames"
+                            })
+                    
+                    # Handle request to unsubscribe from processed frames
+                    elif data["type"] == "unsubscribe_from_processed_frames" and client_type == "broadcaster":
+                        with logger.span("unsubscribe_from_processed") as unsub_span:
+                            if (stream_id in active_connections and 
+                                "broadcaster_viewers" in active_connections[stream_id] and
+                                websocket in active_connections[stream_id]["broadcaster_viewers"]):
+                                
+                                active_connections[stream_id]["broadcaster_viewers"].remove(websocket)
+                                logger.info(f"Broadcaster for stream {stream_id} unsubscribed from processed frames")
+                                
+                                await websocket.send_json({
+                                    "type": "unsubscription_confirmed",
+                                    "message": "You will no longer receive processed frames"
+                                })
         except WebSocketDisconnect:
             # Remove connection on disconnect
             if client_type == "broadcaster":
                 active_connections[stream_id]["broadcasters"].remove(websocket)
+                
+                # Also remove from broadcaster_viewers if present
+                if "broadcaster_viewers" in active_connections[stream_id] and websocket in active_connections[stream_id]["broadcaster_viewers"]:
+                    active_connections[stream_id]["broadcaster_viewers"].remove(websocket)
+                    
                 logger.info(f"Broadcaster disconnected from stream {stream_id}")
             else:
                 active_connections[stream_id]["viewers"].remove(websocket)
@@ -556,6 +612,24 @@ def websocket_server():
                 is_original=False,  # Explicitly mark as NOT original
                 processor_type=processor_type
             )
+            
+            # Also broadcast to any broadcasters that subscribed to processed frames
+            if stream_id in active_connections and "broadcaster_viewers" in active_connections[stream_id]:
+                broadcaster_viewers = active_connections[stream_id]["broadcaster_viewers"]
+                if broadcaster_viewers:
+                    logger.info(f"Broadcasting PROCESSED frame to {len(broadcaster_viewers)} subscribed broadcasters for stream {stream_id}")
+                    try:
+                        await broadcast_frame(
+                            stream_id,
+                            processed_base64,
+                            broadcaster_viewers,
+                            is_original=False,
+                            processor_type=processor_type
+                        )
+                    except Exception as e:
+                        logger.error(f"Error broadcasting to broadcaster viewers: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
             
         except Exception as e:
             logger.error(f"Frame processing error: {e}")
@@ -658,12 +732,7 @@ def websocket_server():
         successful_deliveries = 0
         for i, viewer in enumerate(current_viewers):
             try:
-                # Check if the viewer connection is open
-                if not hasattr(viewer, 'client_state') or viewer.client_state.get('state') == 'DISCONNECTED':
-                    logger.warning(f"Viewer {i} appears disconnected, skipping")
-                    disconnected.append(viewer)
-                    continue
-                    
+                # Don't try to check connection state - just attempt to send and catch errors
                 message = {
                     "type": "frame",
                     "streamId": stream_id,
@@ -693,7 +762,7 @@ def websocket_server():
                 successful_deliveries += 1
                 logger.debug(f"Successfully sent frame to viewer {i}")
             except Exception as e:
-                logger.error(f"Error sending to viewer {i}: {e}")
+                logger.error(f"Error sending to viewer {i}: {str(e)}")
                 disconnected.append(viewer)
         
         # Remove disconnected viewers
