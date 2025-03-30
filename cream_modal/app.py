@@ -198,7 +198,8 @@ def websocket_server():
                     "style_prompt": DEFAULT_STYLE_PROMPT,
                     "negative_prompt": "ugly, deformed, disfigured, poor details, bad anatomy",
                     "processor_type": processor_type,
-                    "strength": 0.9  # Add default strength parameter
+                    "strength": 0.9,  # Add default strength parameter
+                    "stream_ended": False  # Add a flag to track if the stream has been explicitly ended
                 }
             else:
                 # Update processor type for existing stream
@@ -214,6 +215,23 @@ def websocket_server():
         elif client_type == "viewer":
             active_connections[stream_id]["viewers"].append(websocket)
             logger.info(f"Viewer connected to stream {stream_id}")
+            
+            # Immediately check if this stream is active
+            is_active = (
+                stream_id in streams and 
+                not streams[stream_id].get("stream_ended", False) and
+                any(active_connections[stream_id]["broadcasters"])
+            )
+            
+            if not is_active:
+                # Stream doesn't exist or has ended - notify viewer immediately
+                logger.info(f"Viewer connected to non-active stream {stream_id}, notifying immediately")
+                await websocket.send_json({
+                    "type": "stream_status",
+                    "active": False,
+                    "ended": stream_id in streams and streams[stream_id].get("stream_ended", False),
+                    "message": "This stream is not currently active"
+                })
             
             # Send the current style prompt to new viewer
             if stream_id in streams and "style_prompt" in streams[stream_id]:
@@ -469,6 +487,32 @@ def websocket_server():
                                     "message": f"Invalid strength value: {e}"
                                 })
                     
+                    # Handle explicit stream ending from broadcaster
+                    elif data["type"] == "end_stream" and client_type == "broadcaster":
+                        with logger.span("end_stream") as end_span:
+                            if stream_id in streams:
+                                # Mark the stream as ended
+                                streams[stream_id]["stream_ended"] = True
+                                logger.info(f"Broadcaster explicitly ended stream {stream_id}")
+                                
+                                # Confirm to the broadcaster
+                                await websocket.send_json({
+                                    "type": "stream_ended_confirmation",
+                                    "message": "Stream ended successfully"
+                                })
+                                
+                                # Notify all viewers that the stream has ended
+                                for viewer in active_connections[stream_id]["viewers"]:
+                                    try:
+                                        logger.info(f"Notifying viewer that stream {stream_id} has been explicitly ended")
+                                        await viewer.send_json({
+                                            "type": "stream_ended",
+                                            "streamId": stream_id,
+                                            "message": "The broadcaster has ended this stream"
+                                        })
+                                    except Exception as e:
+                                        logger.error(f"Error notifying viewer of explicit stream end: {e}")
+                    
                     elif data["type"] == "ping":
                         with logger.span("ping"):
                             await websocket.send_json({"type": "pong"})
@@ -498,7 +542,14 @@ def websocket_server():
                     # Handle request for latest processed frame from broadcaster
                     elif data["type"] == "get_latest_frame" and client_type == "broadcaster":
                         with logger.span("get_latest_frame") as frame_span:
-                            if stream_id in streams and streams[stream_id].get("latest_processed_frame"):
+                            if stream_id in streams and streams[stream_id].get("stream_ended", False):
+                                # Don't return frames for ended streams
+                                logger.info(f"Not sending frame for ended stream {stream_id}")
+                                await websocket.send_json({
+                                    "type": "stream_ended",
+                                    "message": "This stream has ended"
+                                })
+                            elif stream_id in streams and streams[stream_id].get("latest_processed_frame"):
                                 logger.info(f"Sending latest processed frame to broadcaster for stream {stream_id}")
                                 await websocket.send_json({
                                     "type": "latest_frame",
@@ -543,6 +594,38 @@ def websocket_server():
                                     "type": "unsubscription_confirmed",
                                     "message": "You will no longer receive processed frames"
                                 })
+
+                    # Handle check_stream_status requests from viewers or broadcasters
+                    elif data["type"] == "check_stream_status":
+                        with logger.span("check_stream_status") as status_span:
+                            requested_stream_id = data.get("streamId", stream_id)
+                            
+                            # Check if stream exists in our streams dictionary
+                            stream_exists = requested_stream_id in streams
+                            
+                            # If the stream exists, check if it's explicitly marked as ended
+                            stream_ended = False
+                            if stream_exists:
+                                stream_ended = streams[requested_stream_id].get("stream_ended", False)
+                            
+                            # Check if stream is active (has broadcasters and exists in streams dictionary and not explicitly ended)
+                            is_active = (
+                                requested_stream_id in active_connections and
+                                stream_exists and
+                                not stream_ended and
+                                len(active_connections[requested_stream_id]["broadcasters"]) > 0
+                            )
+                            
+                            logger.info(f"Stream status check for {requested_stream_id}: active={is_active}, ended={stream_ended}")
+                            
+                            # Send stream status response with extended information
+                            await websocket.send_json({
+                                "type": "stream_status",
+                                "streamId": requested_stream_id,
+                                "active": is_active,
+                                "ended": stream_ended,
+                                "message": "Stream is active" if is_active else ("Stream has ended" if stream_ended else "Stream is not active")
+                            })
         except WebSocketDisconnect:
             # Remove connection on disconnect
             if client_type == "broadcaster":
@@ -553,6 +636,25 @@ def websocket_server():
                     active_connections[stream_id]["broadcaster_viewers"].remove(websocket)
                     
                 logger.info(f"Broadcaster disconnected from stream {stream_id}")
+                
+                # Check if this was the last broadcaster for this stream
+                if len(active_connections[stream_id]["broadcasters"]) == 0:
+                    # Mark the stream as ended
+                    if stream_id in streams:
+                        streams[stream_id]["stream_ended"] = True
+                        logger.info(f"Marked stream {stream_id} as ended")
+                    
+                    # Notify all viewers that the stream has ended
+                    for viewer in active_connections[stream_id]["viewers"]:
+                        try:
+                            logger.info(f"Notifying viewer that stream {stream_id} has ended")
+                            await viewer.send_json({
+                                "type": "stream_ended",
+                                "streamId": stream_id,
+                                "message": "The broadcaster has ended this stream"
+                            })
+                        except Exception as e:
+                            logger.error(f"Error notifying viewer of stream end: {e}")
             else:
                 active_connections[stream_id]["viewers"].remove(websocket)
                 logger.info(f"Viewer disconnected from stream {stream_id}")

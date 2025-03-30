@@ -12,7 +12,7 @@ export default function WatchPage() {
   const [connected, setConnected] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("Connecting...");
+  const [status, setStatus] = useState<string>("Checking stream status..."); // Start with checking status
   const statusRef = useRef(status);
   const [lastFrameTimestamp, setLastFrameTimestamp] = useState<number | null>(null);
   const [framesReceived, setFramesReceived] = useState(0);
@@ -31,6 +31,9 @@ export default function WatchPage() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   const reconnectAttempts = useRef(0);
+  const frameActivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const streamStatusCheckRef = useRef<NodeJS.Timeout | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // Add a loading state
   
   useEffect(() => {
     connectedRef.current = connected;
@@ -43,6 +46,23 @@ export default function WatchPage() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+  
+  // Set a timeout to stop showing the loading state after 1 second, even if we haven't
+  // determined the status yet
+  useEffect(() => {
+    const loadingTimeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 1000);
+    
+    return () => clearTimeout(loadingTimeout);
+  }, []);
+  
+  // Immediately hide loading when error is set
+  useEffect(() => {
+    if (error) {
+      setIsLoading(false);
+    }
+  }, [error]);
   
   // Function to establish WebSocket connection
   const connectWebSocket = useCallback(() => {
@@ -88,6 +108,24 @@ export default function WatchPage() {
     
     const ws = new WebSocket(fullWsUrl);
     wsRef.current = ws;
+    
+    // Add a timeout to detect if the stream doesn't exist - longer but with no status update
+    const streamValidationTimeout = setTimeout(() => {
+      if (wsRef.current === ws && 
+          !connectedRef.current && 
+          framesReceivedRef.current === 0 && 
+          ws.readyState === WebSocket.OPEN) {
+        console.log("No stream data received - stream may not be active");
+        
+        // Only update if we haven't received a more specific status message from the server
+        if (statusRef.current === "Checking stream status...") {
+          // Immediately transition to inactive state without showing loading
+          setIsLoading(false);
+          setStatus("Stream not active");
+          setError("This stream doesn't appear to be active. The broadcaster may have ended the stream.");
+        }
+      }
+    }, 4000); // Keep it a bit longer to allow for server response
 
     // Improved heartbeat mechanism
     const heartbeatInterval = 15000; // 15 seconds
@@ -126,27 +164,25 @@ export default function WatchPage() {
     let connectionClosed = false;
     
     ws.onopen = () => {
-      console.log("WebSocket connection established, joining stream");
+      console.log("WebSocket connection established");
       
-      // Only set the connecting status if we're not already showing frames
-      if (!imageData && !nextImageData) {
-        setStatus("Connected, joining stream...");
-      }
+      // Don't update the status message here - keep "Checking stream status..."
+      // This avoids the "Connecting..." → "Connected, joining stream..." transition
       
       setWsConnected(true);
       resetHeartbeat();
       
-      // Set a timeout to update status if no frames arrive within 5 seconds
-      statusTimeoutId = setTimeout(() => {
-        if (framesReceivedRef.current === 0 && ws.readyState === WebSocket.OPEN && !connectionClosed) {
-          setStatus("Waiting for broadcaster to send frames...");
-        }
-      }, 5000);
-      
       // Only request style prompt if this is our first connection (no frames received yet)
       if (isFirstConnection) {
         try {
-          // Request style prompt immediately
+          // Immediately check stream status as top priority
+          ws.send(JSON.stringify({
+            type: 'check_stream_status',
+            streamId: streamId
+          }));
+          console.log("Checking if stream is active");
+          
+          // Request style prompt immediately (lower priority)
           ws.send(JSON.stringify({
             type: 'get_style_prompt',
             streamId: streamId
@@ -163,6 +199,17 @@ export default function WatchPage() {
       } else {
         console.log("Reconnected, already have frames - not requesting style prompt");
       }
+      
+      // Set a timeout to update status if no frames arrive within 5 seconds
+      // This is now a lower priority than the immediate stream check
+      statusTimeoutId = setTimeout(() => {
+        if (framesReceivedRef.current === 0 && ws.readyState === WebSocket.OPEN && !connectionClosed) {
+          // Only update if we're still in the initial checking state
+          if (statusRef.current === "Checking stream status...") {
+            setStatus("Waiting for broadcaster to send frames...");
+          }
+        }
+      }, 3000); // Reduced from 5000 to 3000
     };
     
     // Use a wrapped message handler to reset heartbeats on any message
@@ -178,6 +225,11 @@ export default function WatchPage() {
           return;
         }
         
+        // Clear the stream validation timeout on any meaningful message
+        if (streamValidationTimeout) {
+          clearTimeout(streamValidationTimeout);
+        }
+        
         // Original message handling...
         // We may not get a joined_stream message with the Modal app
         // The connection is already established by connecting to the correct path
@@ -185,9 +237,38 @@ export default function WatchPage() {
           console.log(`Successfully joined stream: ${data.streamId}`);
           setConnected(true);
           setStatus("Connected to stream. Waiting for frames...");
+          setIsLoading(false); // Clear loading state
         } 
+        else if (data.type === 'stream_status') {
+          // Handle explicit stream status response - highest priority
+          console.log(`Stream status response: active=${data.active}, ended=${data.ended || false}`);
+          
+          if (data.active === false) {
+            // Stream is not active - immediately clear loading and show inactive status
+            setIsLoading(false);
+            setStatus("Stream not active");
+            setError("This stream is not currently active. The broadcaster may have ended the stream.");
+            setConnected(false);
+            
+            // Clear any pending validation timeouts to avoid status flickering
+            if (streamValidationTimeout) {
+              clearTimeout(streamValidationTimeout);
+            }
+          } else {
+            // Stream is active
+            console.log("Server confirmed stream is active");
+            setConnected(true);
+            setIsLoading(false);
+            
+            // Only set status if we're still in the checking phase
+            if (statusRef.current === "Checking stream status...") {
+              setStatus("Waiting for first frame...");
+            }
+          }
+        }
         else if (data.type === 'frame') {
           // Always update connection status on frame
+          setIsLoading(false); // Clear loading state on first frame
           if (!connectedRef.current) {
             setConnected(true);
           }
@@ -199,6 +280,23 @@ export default function WatchPage() {
           }
           
           console.log(`Implicitly joined stream by receiving frames`);
+          
+          // Reset any existing frame activity timer
+          if (frameActivityTimerRef.current) {
+            clearTimeout(frameActivityTimerRef.current);
+            frameActivityTimerRef.current = null;
+          }
+          
+          // Set a new timer to detect when frames stop coming (20 seconds)
+          frameActivityTimerRef.current = setTimeout(() => {
+            // If we haven't received a new frame in 20 seconds and we're still connected
+            if (connectedRef.current && framesReceivedRef.current > 0) {
+              console.log("No frames received for 20 seconds, assuming stream has ended");
+              setStatus("Stream has ended");
+              setConnected(false);
+              setError("The stream appears to have ended (no new frames)");
+            }
+          }, 20000);
           
           if (!data.frame) {
             console.error("WATCH DEBUG: Received frame message with no frame data");
@@ -313,10 +411,12 @@ export default function WatchPage() {
           }
         }
         else if (data.type === 'stream_ended') {
-          console.log("Stream has ended");
+          // Explicit stream ended notification
+          console.log("Stream has ended notification received");
           setStatus("Stream has ended");
-          setConnected(false);
           setError("The broadcaster ended this stream");
+          setConnected(false);
+          setIsLoading(false);
         } 
         else if (data.type === 'error') {
           console.error("Error from server:", data.message);
@@ -346,11 +446,25 @@ export default function WatchPage() {
       console.log(`WebSocket connection closed with code ${event.code} and reason: ${event.reason || "No reason provided"}`);
       setWsConnected(false);
       
-      // Only show disconnection if it's not a normal closure or if it's been too long since the last frame
+      // Clear the ping interval
+      clearInterval(pingInterval);
+      
+      // Check if this is likely a stream ending (normal close or we've been receiving frames)
       const isNormalClosure = event.code === 1000;
+      const hasReceivedFrames = framesReceivedRef.current > 0;
       const timeSinceLastFrame = lastFrameTime ? (new Date().getTime() - lastFrameTime.getTime()) / 1000 : Infinity;
       
-      // More intelligent disconnect detection
+      // If we have received frames before and it's a normal closure, or there hasn't been a new frame in a while
+      // then we should treat this as the stream ending
+      if ((hasReceivedFrames && isNormalClosure) || (hasReceivedFrames && timeSinceLastFrame > 15)) {
+        setConnected(false);
+        setStatus("Stream has ended");
+        setError("The stream has ended");
+        console.log("Detected stream end based on WebSocket closure");
+        return; // Don't attempt to reconnect for ended streams
+      }
+      
+      // For other disconnection scenarios that aren't considered stream endings
       if (!isNormalClosure && (timeSinceLastFrame > 10 || !lastFrameTime)) {
         setConnected(false);
         // Don't change status if we're already showing frames
@@ -360,9 +474,6 @@ export default function WatchPage() {
       } else {
         console.log(`WebSocket closed normally or brief disconnection, last frame was ${timeSinceLastFrame.toFixed(1)}s ago`);
       }
-      
-      // Clear the ping interval
-      clearInterval(pingInterval);
       
       // Don't attempt to reconnect if we're actively viewing frames
       // This prevents disrupting the viewing experience with constant reconnects
@@ -398,6 +509,11 @@ export default function WatchPage() {
       console.log("Cleaning up WebSocket connection");
       clearInterval(pingInterval);
       
+      // Clear the stream validation timeout if it exists
+      if (streamValidationTimeout) {
+        clearTimeout(streamValidationTimeout);
+      }
+      
       // Clear status timeout if it exists
       if (statusTimeoutId) {
         clearTimeout(statusTimeoutId);
@@ -407,6 +523,12 @@ export default function WatchPage() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+      
+      // Also clear the frame activity timer
+      if (frameActivityTimerRef.current) {
+        clearTimeout(frameActivityTimerRef.current);
+        frameActivityTimerRef.current = null;
       }
       
       // Mark connection as closed to prevent further status updates
@@ -430,8 +552,38 @@ export default function WatchPage() {
   useEffect(() => {
     const cleanup = connectWebSocket();
     
+    // Set up periodic check of stream status every 30 seconds
+    // This will help detect when streams end without explicit notification
+    streamStatusCheckRef.current = setInterval(() => {
+      // Only check if we're connected but haven't received frames in a while
+      if (wsRef.current && 
+          wsRef.current.readyState === WebSocket.OPEN && 
+          lastFrameTime) {
+        
+        const timeSinceLastFrame = (new Date().getTime() - lastFrameTime.getTime()) / 1000;
+        
+        // If it's been more than 30 seconds since the last frame and we're still "connected"
+        // Check with the server if the stream is still active
+        if (timeSinceLastFrame > 30 && connectedRef.current) {
+          console.log(`No frames for ${timeSinceLastFrame.toFixed(0)}s, checking stream status`);
+          try {
+            wsRef.current.send(JSON.stringify({
+              type: 'check_stream_status',
+              streamId: streamId
+            }));
+          } catch (err) {
+            console.error("Error sending stream status check:", err);
+          }
+        }
+      }
+    }, 30000); // Check every 30 seconds
+    
     return () => {
       cleanup();
+      if (streamStatusCheckRef.current) {
+        clearInterval(streamStatusCheckRef.current);
+        streamStatusCheckRef.current = null;
+      }
     };
   }, [connectWebSocket]);
 
@@ -520,6 +672,26 @@ export default function WatchPage() {
     
     return () => clearInterval(checkInterval);
   }, [wsConnected, connectWebSocket]);
+
+  // Add an effect to clean up frame activity timer
+  useEffect(() => {
+    return () => {
+      if (frameActivityTimerRef.current) {
+        clearTimeout(frameActivityTimerRef.current);
+        frameActivityTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Clean up the status check interval on unmount
+  useEffect(() => {
+    return () => {
+      if (streamStatusCheckRef.current) {
+        clearInterval(streamStatusCheckRef.current);
+        streamStatusCheckRef.current = null;
+      }
+    };
+  }, []);
 
   const handleRetry = () => {
     window.location.reload();
@@ -742,8 +914,41 @@ export default function WatchPage() {
                 )
               ) : (
                 <div className="text-white text-center p-8">
-                  <p className="text-xl">{statusRef.current}</p>
-                  {error && <p className="text-red-400 mt-2">{error}</p>}
+                  {isLoading && !error ? (
+                    <div className="flex flex-col items-center">
+                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite] mb-4" role="status">
+                        <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
+                      </div>
+                      <p className="text-xl">{statusRef.current}</p>
+                    </div>
+                  ) : (
+                    <>
+                      {(statusRef.current === "Stream has ended" || statusRef.current === "Stream not active" || error) ? (
+                        <div className="text-center">
+                          <p className="text-xl mb-6">Stream not available</p>
+                          <div className="flex space-x-4 justify-center">
+                            <button
+                              onClick={handleBack}
+                              className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors"
+                            >
+                              Back to Home
+                            </button>
+                            <button
+                              onClick={handleRetry}
+                              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                            >
+                              Refresh
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xl">{error ? (statusRef.current === "Checking stream status..." ? "Stream not active" : statusRef.current) : statusRef.current}</p>
+                          {error && <p className="text-red-400 mt-2">{error}</p>}
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -757,7 +962,11 @@ export default function WatchPage() {
             
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
               <div className="flex justify-between items-center mb-1">
-                <p className="text-sm font-medium">Status: {statusRef.current}</p>
+                <p className="text-sm font-medium">
+                  {error || (statusRef.current === "Stream has ended" || statusRef.current === "Stream not active") 
+                    ? "Status: Stream not available" 
+                    : `Status: ${statusRef.current}`}
+                </p>
                 <p className="text-sm font-medium text-green-600">{wsConnected ? "Connected" : "Disconnected"}</p>
               </div>
               
@@ -784,23 +993,6 @@ export default function WatchPage() {
                 </>
               )}
             </div>
-            
-            {error && (
-              <div className="flex space-x-4">
-                <button
-                  onClick={handleRetry}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-                >
-                  Retry Connection
-                </button>
-                <button
-                  onClick={handleBack}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
-                >
-                  Back to Home
-                </button>
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
