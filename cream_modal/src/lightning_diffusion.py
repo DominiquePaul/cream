@@ -313,7 +313,7 @@ class LightningDiffusionProcessor:
         if input_image.mode != 'RGB':
             input_image = input_image.convert('RGB')
 
-        def resize_if_needed(image: Image.Image, max_size: int = 2048, min_size: int = 1500) -> Image.Image:
+        def resize_if_needed(image: Image.Image, max_size: int = 1500, min_size: int = 1200) -> Image.Image:
             """Resize image if larger dimension exceeds max_size or smaller dimension is below min_size while maintaining aspect ratio."""
             width, height = image.size
             larger_dim = max(width, height)
