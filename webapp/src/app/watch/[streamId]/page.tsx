@@ -925,7 +925,7 @@ export default function WatchPage() {
                     <>
                       {(statusRef.current === "Stream has ended" || statusRef.current === "Stream not active" || error) ? (
                         <div className="text-center">
-                          <p className="text-xl mb-6">Stream not available</p>
+                          <p className="text-xl mb-6">{statusRef.current === "Stream has ended" ? "The stream has ended" : "Stream not available"}</p>
                           <div className="flex space-x-4 justify-center">
                             <button
                               onClick={handleBack}
@@ -963,9 +963,11 @@ export default function WatchPage() {
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
               <div className="flex justify-between items-center mb-1">
                 <p className="text-sm font-medium">
-                  {error || (statusRef.current === "Stream has ended" || statusRef.current === "Stream not active") 
-                    ? "Status: Stream not available" 
-                    : `Status: ${statusRef.current}`}
+                  {statusRef.current === "Stream has ended" 
+                    ? "Status: Stream has ended" 
+                    : error || statusRef.current === "Stream not active"
+                      ? "Status: Stream not available" 
+                      : `Status: ${statusRef.current}`}
                 </p>
                 <p className="text-sm font-medium text-green-600">{wsConnected ? "Connected" : "Disconnected"}</p>
               </div>

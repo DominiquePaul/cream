@@ -246,7 +246,10 @@ def websocket_server():
                 logger.info(f"Sent current style prompt to new viewer for stream {stream_id}: '{current_prompt}'")
                 
                 # If we have a recent processed frame, send it to the new viewer immediately
-                if "latest_processed_frame" in streams[stream_id] and streams[stream_id]["latest_processed_frame"]:
+                # BUT ONLY if the stream hasn't ended
+                if (is_active and
+                    "latest_processed_frame" in streams[stream_id] and 
+                    streams[stream_id]["latest_processed_frame"]):
                     try:
                         logger.info(f"Sending latest processed frame to new viewer for stream {stream_id}")
                         
@@ -493,6 +496,8 @@ def websocket_server():
                             if stream_id in streams:
                                 # Mark the stream as ended
                                 streams[stream_id]["stream_ended"] = True
+                                # Clear the latest frame to prevent it from being sent to new viewers
+                                streams[stream_id]["latest_processed_frame"] = None
                                 logger.info(f"Broadcaster explicitly ended stream {stream_id}")
                                 
                                 # Confirm to the broadcaster
@@ -642,6 +647,8 @@ def websocket_server():
                     # Mark the stream as ended
                     if stream_id in streams:
                         streams[stream_id]["stream_ended"] = True
+                        # Clear the latest frame to prevent it from being sent to new viewers
+                        streams[stream_id]["latest_processed_frame"] = None
                         logger.info(f"Marked stream {stream_id} as ended")
                     
                     # Notify all viewers that the stream has ended
