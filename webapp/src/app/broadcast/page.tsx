@@ -648,24 +648,6 @@ export default function BroadcastPage() {
                         console.error("❌ Processed image failed to load", err);
                       }}
                     />
-                    
-                    <div className="absolute top-2 left-2 bg-black/70 text-white p-2 text-xs z-10 rounded-md">
-                      <p>Viewing processed stream | Updated: {new Date().toLocaleTimeString()}</p>
-                      
-                      <button 
-                        onClick={() => {
-                          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                            console.log("Manual refresh: Requesting latest processed frame");
-                            wsRef.current.send(JSON.stringify({
-                              type: "get_latest_frame"
-                            }));
-                          }
-                        }} 
-                        className="mt-1 px-2 py-1 bg-blue-500 hover:bg-blue-600 rounded text-xs"
-                      >
-                        Refresh Frame
-                      </button>
-                    </div>
                   </div>
                 ) : (
                   <div className="text-white text-center p-4">
@@ -783,28 +765,6 @@ export default function BroadcastPage() {
                     {`${window.location.origin}/watch/${streamId}`}
                   </a>
                 </p>
-                <div className="mt-2">
-                  <button
-                    onClick={() => {
-                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                        console.log("🧪 Testing server connectivity");
-                        wsRef.current.send(JSON.stringify({ 
-                          type: 'ping', 
-                          message: "Testing server connection" 
-                        }));
-                        
-                        // Don't use get_latest_frame since it doesn't exist
-                        console.log("Only using ping for connection test (server doesn't support get_latest_frame)");
-                      } else {
-                        console.error("WebSocket not connected");
-                        setError("Cannot test connection: WebSocket not connected");
-                      }
-                    }}
-                    className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm"
-                  >
-                    Test Connection
-                  </button>
-                </div>
               </>
             )}
           </div>
