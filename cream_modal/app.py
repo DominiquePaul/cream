@@ -487,17 +487,26 @@ def websocket_server():
     async def process_and_broadcast_frame(stream_id, frame_data, viewers, processor, processor_type):
         """Process a frame and broadcast to all viewers"""
         try:
-            # Process the frame using the shared processor
+            # First, immediately send the original frame to the viewers for low latency
+            # This ensures viewers always see something while processing happens
+            await broadcast_frame(
+                stream_id, 
+                frame_data, 
+                viewers, 
+                is_original=True, 
+                processor_type=processor_type
+            )
+            
             try:
                 processing_start = asyncio.get_event_loop().time()
                 
                 # Use the stream-specific prompt instead of hardcoded one
                 current_prompt = streams[stream_id]["style_prompt"]
-                current_strength = streams[stream_id].get("strength", 0.9)  # Get the current strength
+                current_strength = streams[stream_id].get("strength", 0.9)
                 
                 logger.info(f"Processing frame for stream {stream_id} with prompt: '{current_prompt}' using {processor_type} processor (strength: {current_strength})")
                 
-                # Process the frame, passing the strength parameter directly to process_base64_frame
+                # Process the frame
                 processed_base64 = await process_base64_frame(
                     frame_data, 
                     processor,
@@ -509,8 +518,9 @@ def websocket_server():
                 
                 logger.info(f"Frame for stream {stream_id} processed in {processing_time:.2f}s using {processor_type} processor (strength: {current_strength})")
                 
-                # Broadcast to all viewers
+                # Broadcast processed frame to all viewers
                 await broadcast_frame(stream_id, processed_base64, viewers, processor_type=processor_type)
+                
             except Exception as e:
                 logger.error(f"Frame processing error: {e}")
                 # Capture and log traceback
@@ -540,25 +550,44 @@ def websocket_server():
         finally:
             # Reset processing flag
             if stream_id in streams:
-                # Check if the latest frame is different from the one we just processed
-                # If so, process the latest frame immediately (skipping any intermediate frames)
+                # Before processing a new frame, check if there are too many frames waiting
                 latest_frame = streams[stream_id]["latest_frame"]
                 is_new_frame = latest_frame != frame_data
                 
-                # Set processing to False ONLY if we're not going to process a new frame immediately
+                # Only process next frame if we're not falling too far behind
+                # This helps prevent a growing backlog
+                frame_skip_threshold = 3  # Only keep processing if we have <= 3 frames waiting
+                should_process_next = is_new_frame and (window.frameSkipCounter <= frame_skip_threshold if hasattr(window, 'frameSkipCounter') else True)
+                
                 if not is_new_frame:
                     streams[stream_id]["processing"] = False
                     logger.info(f"Processing complete for stream {stream_id}, no new frames waiting")
-                else:
-                    # There's a newer frame - process it immediately (skipping any intermediate frames)
-                    # We keep processing=True to prevent any other incoming frames from being processed
-                    logger.info(f"Processing latest frame for stream {stream_id} (skipping any intermediate frames)")
-                    
+                elif should_process_next:
+                    # Process next frame normally
                     # Get the current processor type
                     current_processor_type = streams[stream_id].get("processor_type", "standard")
                     processor = global_processors[current_processor_type]
                     
                     # Launch task to process the latest frame
+                    asyncio.create_task(
+                        process_and_broadcast_frame(
+                            stream_id, 
+                            latest_frame,
+                            viewers,
+                            processor,
+                            current_processor_type
+                        )
+                    )
+                else:
+                    # Too many frames in backlog - skip ahead to latest
+                    logger.info(f"Skipping intermediate frames for stream {stream_id} due to backlog")
+                    streams[stream_id]["processing"] = False  # Temporarily reset to allow immediate processing
+                    
+                    # Force a small delay before processing the latest frame
+                    await asyncio.sleep(0.1)
+                    
+                    # Trigger processing for the latest frame
+                    streams[stream_id]["processing"] = True
                     asyncio.create_task(
                         process_and_broadcast_frame(
                             stream_id, 
