@@ -56,9 +56,6 @@ class LightningDiffusionProcessor:
         self.strength = strength
         self.num_steps = num_steps
         
-        # First verify that CUDA is available
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available but is required for this application")
         
         # Initialize metrics for monitoring
         self.processed_frames = 0
@@ -93,6 +90,10 @@ class LightningDiffusionProcessor:
         repo = "ByteDance/SDXL-Lightning"
         controlnet_model_name = "diffusers/controlnet-depth-sdxl-1.0"
         
+        # Determine device to use
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Using device: {device}")
+        
         # Determine which checkpoint to use based on inference steps
         logger.info(f"Using {self.num_steps}-step SDXL-Lightning checkpoint")
         if self.num_steps == 1:
@@ -116,29 +117,31 @@ class LightningDiffusionProcessor:
             prediction_type = "epsilon"
             ckpt = "sdxl_lightning_8step_unet.safetensors"
         
-        # Clear CUDA cache before loading models
-        try:
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        except Exception as e:
-            logger.warning(f"Error clearing CUDA cache: {e}")
+        # Clear CUDA cache before loading models if using GPU
+        if device == "cuda":
+            try:
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            except Exception as e:
+                logger.warning(f"Error clearing CUDA cache: {e}")
         
         # Load UNet from configuration
         with logger.span("Loading UNet"):
             # Ensure we get a properly typed model instance
             unet = UNet2DConditionModel.from_pretrained(
-                base_model, subfolder="unet", torch_dtype=torch.float16
+                base_model, subfolder="unet", torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                use_safetensors=True
             )
             # Cast to the right type to satisfy linter
             if not isinstance(unet, UNet2DConditionModel):
                 logger.warning("UNet model is not the expected type")
             # Move to device as a separate step
-            unet = unet.to("cuda") # type: ignore
+            unet = unet.to(device) # type: ignore
         
         # Download and load the checkpoint
         with logger.span("Loading checkpoint"):
             ckpt_path = hf_hub_download(repo, ckpt)
-            unet.load_state_dict(load_file(ckpt_path, device="cuda"))
+            unet.load_state_dict(load_file(ckpt_path, device=device))
         
         # Initialize ControlNet if requested
         controlnet = None
@@ -149,22 +152,24 @@ class LightningDiffusionProcessor:
                 # Ensure we get a properly typed model instance
                 controlnet = ControlNetModel.from_pretrained(
                     controlnet_model_name,
-                    torch_dtype=torch.float16,
+                    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
                     use_safetensors=True
                 )
-                controlnet = controlnet.to("cuda") # type: ignore
+                controlnet = controlnet.to(device) # type: ignore
                 
                 # Initialize depth estimator
-                self.depth_estimator = pipeline('depth-estimation', device="cuda")
+                self.depth_estimator = pipeline('depth-estimation', device=device)
             
         # Create pipeline based on number of steps and ControlNet usage
         with logger.span("Creating pipeline"):
+            dtype = torch.float16 if device == "cuda" else torch.float32
             if self.num_steps == 1:
                 # For 1-step, use the StableDiffusionXLPipeline directly as in model card
                 logger.info(f"Creating txt2img pipeline with {base_model} for 1-step model")
                 self.pipe = StableDiffusionXLPipeline.from_pretrained(
-                    base_model, unet=unet, torch_dtype=torch.float16, variant="fp16"
-                ).to("cuda")
+                    base_model, unet=unet, torch_dtype=dtype, variant="fp16" if device == "cuda" else None,
+                    use_safetensors=True
+                ).to(device)
             elif self.use_controlnet and controlnet is not None:
                 # For multi-step with ControlNet, use StableDiffusionXLControlNetPipeline
                 logger.info(f"Creating ControlNet pipeline with {base_model}")
@@ -172,15 +177,17 @@ class LightningDiffusionProcessor:
                     base_model, 
                     unet=unet, 
                     controlnet=controlnet,
-                    torch_dtype=torch.float16, 
-                    variant="fp16"
-                ).to("cuda")
+                    torch_dtype=dtype,
+                    variant="fp16" if device == "cuda" else None,
+                    use_safetensors=True
+                ).to(device)
             else:
                 # For multi-step without ControlNet, use img2img pipeline
                 logger.info(f"Creating img2img pipeline with {base_model}")
                 self.pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                    base_model, unet=unet, torch_dtype=torch.float16, variant="fp16"
-                ).to("cuda")
+                    base_model, unet=unet, torch_dtype=dtype, variant="fp16" if device == "cuda" else None,
+                    use_safetensors=True
+                ).to(device)
         
         # Configure scheduler based on model requirements
         logger.info(f"Configuring scheduler with prediction_type={prediction_type}")
@@ -195,25 +202,25 @@ class LightningDiffusionProcessor:
             if hasattr(self.pipe, "enable_attention_slicing"):
                 self.pipe.enable_attention_slicing()
             
-            # Enable xFormers memory efficient attention if available
-            try:
-                if hasattr(self.pipe, "enable_xformers_memory_efficient_attention"):
-                    self.pipe.enable_xformers_memory_efficient_attention()
-                    logger.info("Enabled xFormers memory efficient attention")
-            except Exception as e:
-                logger.warning(f"Error enabling xFormers: {e}")
-                # Try using SDPA as fallback
+            # Enable xFormers memory efficient attention if available and on GPU
+            if device == "cuda":
                 try:
-                    logger.info("Trying to use Scaled Dot Product Attention (SDPA) as alternative")
-                    self.pipe.unet.set_attn_processor(AttnProcessor2_0())
-                    self.pipe.vae.set_attn_processor(AttnProcessor2_0())
-                    logger.info("Enabled SDPA attention mechanism")
-                except Exception as e2:
-                    logger.warning(f"Error enabling SDPA: {e2}")
+                    if hasattr(self.pipe, "enable_xformers_memory_efficient_attention"):
+                        self.pipe.enable_xformers_memory_efficient_attention()
+                        logger.info("Enabled xFormers memory efficient attention")
+                except Exception as e:
+                    logger.warning(f"Error enabling xFormers: {e}")
+                    # Try using SDPA as fallback
+                    try:
+                        logger.info("Trying to use Scaled Dot Product Attention (SDPA) as alternative")
+                        self.pipe.unet.set_attn_processor(AttnProcessor2_0())
+                        self.pipe.vae.set_attn_processor(AttnProcessor2_0())
+                        logger.info("Enabled SDPA attention mechanism")
+                    except Exception as e2:
+                        logger.warning(f"Error enabling SDPA: {e2}")
             
-            # Set torch CUDA operations to be non-blocking for better parallelism
-            torch.backends.cudnn.benchmark = True
-        
+                # Set torch CUDA operations to be non-blocking for better parallelism
+                torch.backends.cudnn.benchmark = True
     
 
 
@@ -270,7 +277,8 @@ class LightningDiffusionProcessor:
         frame_data: bytes,
         prompt: str,
         negative_prompt: str | None, #= "ugly, deformed, disfigured, poor details, bad anatomy",
-        guidance_scale: float = 1.0
+        guidance_scale: float = 1.0,
+        strength: float | None = None  # Add optional strength parameter
     ) -> tuple[bytes, Image.Image | None]:
         """
         Process a single frame with SDXL-Lightning.
@@ -280,10 +288,14 @@ class LightningDiffusionProcessor:
             prompt: Text prompt for generation (uses default style if None)
             negative_prompt: Negative prompt to guide generation
             guidance_scale: Guidance scale for the diffusion model
+            strength: Optional strength to override the default value (0.0-1.0)
         Returns:
             Processed frame as bytes
         """           
         start_time = time.time()
+        
+        # Use provided strength or fall back to instance default
+        current_strength = strength if strength is not None else self.strength
         
         # Validate input
         if not frame_data or len(frame_data) == 0:
@@ -301,14 +313,19 @@ class LightningDiffusionProcessor:
         if input_image.mode != 'RGB':
             input_image = input_image.convert('RGB')
 
-        def resize_if_needed(image: Image.Image, max_size: int = 2048) -> Image.Image:
-            """Resize image if larger dimension exceeds max_size while maintaining aspect ratio."""
+        def resize_if_needed(image: Image.Image, max_size: int = 2048, min_size: int = 1500) -> Image.Image:
+            """Resize image if larger dimension exceeds max_size or smaller dimension is below min_size while maintaining aspect ratio."""
             width, height = image.size
             larger_dim = max(width, height)
+            smaller_dim = min(width, height)
             
-            # Only resize if image is too large
-            if larger_dim > max_size:
-                scale = max_size / larger_dim
+            # Resize if image is too large or too small
+            if larger_dim > max_size or smaller_dim < min_size:
+                if larger_dim > max_size:
+                    scale = max_size / larger_dim
+                else:
+                    scale = min_size / smaller_dim
+                    
                 new_width = int(width * scale)
                 new_height = int(height * scale)
                 
@@ -317,9 +334,7 @@ class LightningDiffusionProcessor:
             
             return image
 
-        input_image = resize_if_needed(input_image)
-
-        model_input_image = input_image
+        model_input_image = resize_if_needed(input_image)
         
         try:
             # Free CUDA memory if needed
@@ -341,7 +356,7 @@ class LightningDiffusionProcessor:
                             negative_prompt=negative_prompt,
                             num_inference_steps=self.num_steps,
                             guidance_scale=guidance_scale,
-                            strength=self.strength,
+                            strength=current_strength,
                         )
                     
                 elif self.use_controlnet:
@@ -358,7 +373,7 @@ class LightningDiffusionProcessor:
                             num_inference_steps=self.num_steps,
                             guidance_scale=guidance_scale,
                             controlnet_conditioning_scale=0.5,
-                            strength=self.strength,
+                            strength=current_strength,
                         )
                     
                 else:
@@ -367,7 +382,7 @@ class LightningDiffusionProcessor:
                         logger.error(f"Pipeline type doesn't match the requested operation (Img2Img). Type found: {type(self.pipe)}")
                         return frame_data, None
                     
-                    logger.info(f"Processing with img2img pipeline, steps={self.num_steps}, strength={self.strength}")
+                    logger.info(f"Processing with img2img pipeline, steps={self.num_steps}, strength={current_strength}")
                     with logger.span("Processing with img2img pipeline"):
                         output = self.pipe(
                             prompt=prompt,
@@ -375,7 +390,7 @@ class LightningDiffusionProcessor:
                             negative_prompt=negative_prompt,
                             num_inference_steps=self.num_steps,
                             guidance_scale=guidance_scale,
-                            strength=self.strength,
+                            strength=current_strength,
                         )
             except Exception as e:
                 logger.error(f"Error during inference: {e}")
@@ -439,7 +454,7 @@ processor = None
 processor_lock = None
 processor_init_in_progress = False
 
-def get_lightning_processor(
+def get_processor(
     use_controlnet: bool, 
     strength: float,
     num_steps,
@@ -519,7 +534,8 @@ async def process_base64_frame(
     base64_frame: str, 
     processor: LightningDiffusionProcessor,
     prompt: str,
-    negative_prompt: str | None
+    negative_prompt: str | None,
+    strength: float | None = None  # Add optional strength parameter
 ) -> str:
     """
     Process a base64 encoded frame and return the result as base64.
@@ -528,6 +544,8 @@ async def process_base64_frame(
         base64_frame: Base64 encoded image (with or without data:image prefix)
         processor: LightningDiffusionProcessor instance
         prompt: Optional style prompt
+        negative_prompt: Negative prompt
+        strength: Optional strength value to override processor default (0.0-1.0)
         
     Returns:
         Base64 encoded processed image (without data:image prefix)
@@ -557,7 +575,12 @@ async def process_base64_frame(
             return base64_frame
             
         # Process the frame
-        processed_data, depth_image = await processor.process_frame(img_data, prompt=prompt, negative_prompt=negative_prompt)
+        processed_data, depth_image = await processor.process_frame(
+            img_data, 
+            prompt=prompt, 
+            negative_prompt=negative_prompt,
+            strength=strength  # Pass the strength parameter
+        )
         
         # Encode back to base64
         processed_base64 = base64.b64encode(processed_data).decode('utf-8')

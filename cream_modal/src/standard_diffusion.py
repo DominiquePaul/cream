@@ -29,32 +29,27 @@ class LivestreamImageProcessor:
         self.style_prompt = style_prompt
         self.strength = strength
         
-        # First verify that CUDA is available
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is not available but is required for this application")
-        
         # Setup pipeline first 
         self.setup_pipeline()
         
         # Initialize depth estimator if using ControlNet
         if use_controlnet:
-            # Always use CUDA for depth estimator
-            device = "cuda"
+            # Use CUDA if available, otherwise CPU
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"Initializing depth estimator on {device}")
             
-            # Try with direct CUDA placement first
             try:
                 self.depth_estimator = pipeline('depth-estimation', device=device)
                 logger.info(f"Depth estimator initialized on {device}")
             except Exception as e:
                 logger.error(f"Error initializing depth estimator on {device}: {e}")
-                # Try with auto device mapping as a second option (still CUDA-based)
+                # Try with auto device mapping as fallback
                 try:
                     self.depth_estimator = pipeline('depth-estimation', device_map="auto")
                     logger.info("Depth estimator initialized with auto device mapping")
                 except Exception as e2:
                     logger.error(f"Error initializing depth estimator with auto mapping: {e2}")
-                    raise RuntimeError(f"Failed to initialize depth estimator on GPU: {e2}")
+                    raise RuntimeError(f"Failed to initialize depth estimator: {e2}")
         
         # Track metrics for monitoring
         self.processed_frames = 0
@@ -124,23 +119,23 @@ class LivestreamImageProcessor:
         
     def setup_pipeline(self):
         """Initialize the pipeline with or without ControlNet."""
-        # Always use CUDA - never fall back to CPU
-        device = "cuda"
+        # Determine device based on availability
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Setting up pipeline on {device}")
         
-        # Use half precision for GPU to reduce memory usage
-        torch_dtype = torch.float16
+        # Use half precision for GPU, full precision for CPU
+        torch_dtype = torch.float16 if device == "cuda" else torch.float32
         
-        # Clear CUDA cache before loading models
-        try:
-            # Release any existing CUDA resources
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            logger.info("Cleared CUDA cache and synchronized")
-        except Exception as e:
-            logger.warning(f"Error clearing CUDA cache: {e}")
+        # Clear CUDA cache if using GPU
+        if device == "cuda":
+            try:
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.info("Cleared CUDA cache and synchronized")
+            except Exception as e:
+                logger.warning(f"Error clearing CUDA cache: {e}")
         
-        # Try to initialize with a few retries, but always stick with CUDA
+        # Try to initialize with a few retries
         max_retries = 3
         current_retry = 0
         success = False
@@ -148,15 +143,14 @@ class LivestreamImageProcessor:
         while not success and current_retry < max_retries:
             if current_retry > 0:
                 logger.info(f"Retry attempt {current_retry}/{max_retries} for pipeline setup")
-                # Add more delay between retries
-                time.sleep(5 * current_retry)  # Increasing delay with each retry
-                # Clear CUDA cache again before retry
-                try:
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    logger.info("Re-cleared CUDA cache before retry")
-                except Exception:
-                    pass
+                time.sleep(5 * current_retry)
+                if device == "cuda":
+                    try:
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        logger.info("Re-cleared CUDA cache before retry")
+                    except Exception:
+                        pass
             
             try:
                 # Load the models
@@ -181,43 +175,46 @@ class LivestreamImageProcessor:
                         use_safetensors=True
                     )
                 
-                # Move pipeline to the selected device - this is where CUDA errors often occur
+                # Move pipeline to the selected device
                 logger.info(f"Moving pipeline to {device}")
                 self.pipeline.to(device)
                 logger.info(f"Pipeline successfully moved to {device}")
                 
-                # Apply memory optimizations
-                # Enable attention slicing for lower memory usage
-                if hasattr(self.pipeline, "enable_attention_slicing"):
-                    self.pipeline.enable_attention_slicing()
-                    logger.info("Enabled attention slicing for memory optimization")
-                
-                # Enable xformers memory efficient attention if available
-                try:
-                    if hasattr(self.pipeline, "enable_xformers_memory_efficient_attention"):
-                        self.pipeline.enable_xformers_memory_efficient_attention()
-                        logger.info("Enabled xformers memory efficient attention")
-                except ImportError:
-                    logger.info("xformers not available, continuing without it")
-                
-                # Optimize for inference
-                if hasattr(self.pipeline, "enable_model_cpu_offload"):
-                    # Offload to CPU when not in use to save GPU memory
-                    self.pipeline.enable_model_cpu_offload()
-                    logger.info("Enabled model CPU offload")
+                # Apply memory optimizations if on CUDA
+                if device == "cuda":
+                    # Enable attention slicing for lower memory usage
+                    if hasattr(self.pipeline, "enable_attention_slicing"):
+                        self.pipeline.enable_attention_slicing()
+                        logger.info("Enabled attention slicing for memory optimization")
+                    
+                    # Enable xformers memory efficient attention if available
+                    try:
+                        if hasattr(self.pipeline, "enable_xformers_memory_efficient_attention"):
+                            self.pipeline.enable_xformers_memory_efficient_attention()
+                            logger.info("Enabled xformers memory efficient attention")
+                    except ImportError:
+                        logger.info("xformers not available, continuing without it")
+                    
+                    # Optimize for inference
+                    if hasattr(self.pipeline, "enable_model_cpu_offload"):
+                        self.pipeline.enable_model_cpu_offload()
+                        logger.info("Enabled model CPU offload")
             
                 # Store the device for later use
                 self.device = device
                 
                 logger.info(f"Pipeline configured to run on {device} with {torch_dtype}")
                 
-                # Log CUDA information
-                logger.info(f"CUDA available: {torch.cuda.is_available()}")
-                logger.info(f"CUDA device count: {torch.cuda.device_count()}")
-                logger.info(f"CUDA device name: {torch.cuda.get_device_name(0)}")
-                logger.info(f"CUDA device capability: {torch.cuda.get_device_capability(0)}")
-                logger.info(f"CUDA memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                logger.info(f"CUDA memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+                # Log device information
+                if device == "cuda":
+                    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+                    logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+                    logger.info(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+                    logger.info(f"CUDA device capability: {torch.cuda.get_device_capability(0)}")
+                    logger.info(f"CUDA memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                    logger.info(f"CUDA memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+                else:
+                    logger.info("Running on CPU - performance may be limited")
                 
                 # Mark setup as successful
                 success = True
@@ -231,17 +228,17 @@ class LivestreamImageProcessor:
                 # Increment retry counter
                 current_retry += 1
         
-        # If we get here, all retries failed - but still don't fallback to CPU
+        # If we get here, all retries failed
         if not success:
-            logger.error(f"All {max_retries} CUDA setup attempts failed")
-            raise RuntimeError("Failed to initialize pipeline on CUDA after multiple attempts")
-        
+            logger.error(f"All {max_retries} setup attempts failed")
+            raise RuntimeError("Failed to initialize pipeline after multiple attempts")
     async def process_frame(
         self,
         frame_data: bytes,
         prompt: Optional[str] = None,
         negative_prompt: str | None = None,
         guidance_scale: float = 7.0,
+        strength: float | None = None  # Add optional strength parameter
     ) -> tuple[bytes, Image.Image | None]:
         """
         Process a single frame for livestreaming.
@@ -251,11 +248,15 @@ class LivestreamImageProcessor:
             prompt: Text prompt for generation (uses default style if None)
             negative_prompt: Negative prompt to guide generation
             guidance_scale: Guidance scale for the diffusion model
+            strength: Optional strength to override the default value (0.0-1.0)
             
         Returns:
             Processed frame as bytes
         """
         start_time = time.time()
+        
+        # Use provided strength or fall back to instance default
+        current_strength = strength if strength is not None else self.strength
         
         # Use the class default prompt if none provided
         if prompt is None:
@@ -340,11 +341,12 @@ class LivestreamImageProcessor:
                 
                 # Process with ControlNet
                 generation_start = time.time()
+                logger.info(f"Processing with controlnet pipeline, strength={current_strength}")
                 result_image = self.pipeline(
                     prompt,
                     image=model_input_image,
                     control_image=depth_image,
-                    strength=self.strength,
+                    strength=current_strength,  # Use custom strength if provided
                     guidance_scale=guidance_scale,
                     negative_prompt=negative_prompt,
                     num_steps=25,  # Slightly increased for better quality
@@ -354,10 +356,11 @@ class LivestreamImageProcessor:
             else:
                 # Process without ControlNet
                 generation_start = time.time()
+                logger.info(f"Processing with standard pipeline, strength={current_strength}")
                 result_image = self.pipeline(
                     prompt,
                     image=model_input_image,
-                    strength=self.strength,
+                    strength=current_strength,  # Use custom strength if provided
                     guidance_scale=guidance_scale,
                     negative_prompt=negative_prompt,
                     num_steps=25,  # Slightly increased for better quality
@@ -408,7 +411,9 @@ class LivestreamImageProcessor:
 async def process_base64_frame(
     base64_frame: str, 
     processor: LivestreamImageProcessor,
-    prompt: Optional[str] = None
+    prompt: Optional[str] = None,
+    negative_prompt: str | None = None,
+    strength: float | None = None  # Add optional strength parameter
 ) -> str:
     """
     Process a base64 encoded frame and return the result as base64.
@@ -417,6 +422,8 @@ async def process_base64_frame(
         base64_frame: Base64 encoded image (with or without data:image prefix)
         processor: LivestreamImageProcessor instance
         prompt: Optional style prompt
+        negative_prompt: Optional negative prompt
+        strength: Optional strength value to override processor default (0.0-1.0)
         
     Returns:
         Base64 encoded processed image (without data:image prefix)
@@ -440,35 +447,29 @@ async def process_base64_frame(
         
         # Decode base64 to bytes
         try:
-            img_data = base64.b64decode(clean_base64, validate=True)
+            img_data = base64.b64decode(clean_base64)
             logger.debug(f"Successfully decoded base64 data, size: {len(img_data)} bytes")
         except Exception as e:
             logger.warning(f"Base64 decoding error: {e}")
             return base64_frame
-        
-        # Verify we have valid image data
-        try:
-            # Try to open as an image to validate
-            test_image = Image.open(io.BytesIO(img_data))
-            test_image.verify()  # Verify it's a valid image
-            logger.debug(f"Validated image: format={test_image.format}, size={test_image.size}, mode={test_image.mode}")
-        except Exception as e:
-            logger.warning(f"Image validation error: {e}")
-            return base64_frame
             
         # Process the frame
-        processed_data, depth_image = await processor.process_frame(img_data, prompt=prompt)
+        processed_data, _ = await processor.process_frame(
+            img_data, 
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            strength=strength  # Pass the strength parameter
+        )
         
         # Encode back to base64
         processed_base64 = base64.b64encode(processed_data).decode('utf-8')
         logger.debug(f"Successfully encoded processed image, base64 size: {len(processed_base64)} chars")
         
-        # Return clean base64 without data URL prefix - will be added by broadcast_frame
         return processed_base64
     except Exception as e:
         logger.error(f"Error processing base64 frame: {e}")
         import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
         # Return original on error
         return base64_frame
 

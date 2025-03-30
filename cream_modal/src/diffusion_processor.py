@@ -11,20 +11,13 @@ from PIL import Image
 from src.utils.logger import logger
 
 # Import diffusion_pipeline dynamically to handle cases where it might not be available
-from src.standard_diffusion import (
-    LivestreamImageProcessor,
-    get_processor,
-    process_base64_frame as process_base64_frame_standard
-)
+import src.standard_diffusion as sd
+
 HAS_STANDARD_PROCESSOR = True
 
 
 # Import lightning_diffusion dynamically to handle cases where it might not be available
-from src.lightning_diffusion import (
-    LightningDiffusionProcessor,
-    get_lightning_processor,
-    process_base64_frame as process_base64_frame_lightning
-)
+import src.lightning_diffusion as ld
 HAS_LIGHTNING_PROCESSOR = True
 
 ProcessorType = Literal["standard", "lightning"]
@@ -32,7 +25,7 @@ ProcessorType = Literal["standard", "lightning"]
 def get_diffusion_processor(
     processor_type: ProcessorType = "standard",
     **kwargs
-) -> Union[LivestreamImageProcessor, LightningDiffusionProcessor]:
+) -> Union[sd.LivestreamImageProcessor, ld.LightningDiffusionProcessor]:
     """
     Get the appropriate diffusion processor based on the specified type.
     
@@ -86,14 +79,16 @@ def get_diffusion_processor(
     logger.info(f"Using {processor_type} diffusion processor")
     
     if processor_type == "lightning":
-        return get_lightning_processor(**kwargs)
+        return ld.get_processor(**kwargs)
     else:  # standard
-        return get_processor(**kwargs)
+        return sd.get_processor(**kwargs)
 
 async def process_base64_frame(
     base64_frame: str,
-    processor: Union[LivestreamImageProcessor, LightningDiffusionProcessor],
-    prompt: str
+    processor: Union[sd.LivestreamImageProcessor, ld.LightningDiffusionProcessor],
+    prompt: str,
+    negative_prompt: str | None = None,
+    strength: float | None = None
 ) -> str:
     """
     Process a base64 encoded frame using the provided processor.
@@ -105,20 +100,22 @@ async def process_base64_frame(
         base64_frame: Base64 encoded image (with or without data:image prefix)
         processor: Diffusion processor instance (either standard or lightning)
         prompt: Optional style prompt
+        negative_prompt: Optional negative prompt
+        strength: Optional strength value to override processor default (0.0-1.0)
         
     Returns:
         Base64 encoded processed image (without data:image prefix)
     """
-    if HAS_LIGHTNING_PROCESSOR and isinstance(processor, LightningDiffusionProcessor):
+    if HAS_LIGHTNING_PROCESSOR and isinstance(processor, ld.LightningDiffusionProcessor):
         # Type-safe call for Lightning processor
         from typing import cast
-        lightning_processor = cast(LightningDiffusionProcessor, processor)
-        return await process_base64_frame_lightning(base64_frame, lightning_processor, prompt)
+        lightning_processor = cast(ld.LightningDiffusionProcessor, processor)
+        return await ld.process_base64_frame(base64_frame, lightning_processor, prompt, negative_prompt, strength)
     elif HAS_STANDARD_PROCESSOR:
         # Type-safe call for Standard processor
         from typing import cast
-        standard_processor = cast(LivestreamImageProcessor, processor)
-        return await process_base64_frame_standard(base64_frame, standard_processor, prompt)
+        standard_processor = cast(sd.LivestreamImageProcessor, processor)
+        return await sd.process_base64_frame(base64_frame, standard_processor, prompt, negative_prompt, strength)
     else:
         logger.error(f"Unknown processor type: {type(processor)}")
         return base64_frame
