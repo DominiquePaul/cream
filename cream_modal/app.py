@@ -10,7 +10,7 @@ from src.diffusion_processor import get_diffusion_processor, process_base64_fram
 # Define default style prompt as a constant
 DEFAULT_STYLE_PROMPT = "A painting in the style of van Gogh's 'Starry Night'"
 
-app = App("cream-livestream-processor")
+app = App("dreamstream-livestream-processor")
 
 # Function to run during image building
 def build_initialize_models():

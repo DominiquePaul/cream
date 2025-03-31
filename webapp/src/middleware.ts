@@ -28,7 +28,7 @@ export async function middleware(req: NextRequest) {
   // Check auth for protected routes
   const isAuthRoute = req.nextUrl.pathname.startsWith('/auth');
   const isProtectedRoute = req.nextUrl.pathname.startsWith('/profile') || 
-                           req.nextUrl.pathname.startsWith('/broadcast') ||
+                           req.nextUrl.pathname.startsWith('/stream') ||
                            req.nextUrl.pathname.startsWith('/admin');
 
   // If accessing auth pages while logged in, redirect to home
@@ -60,5 +60,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/auth/:path*', '/profile/:path*', '/broadcast', '/admin/:path*'],
+  matcher: ['/auth/:path*', '/profile/:path*', '/broadcast', '/stream', '/admin/:path*'],
 } 

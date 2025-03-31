@@ -603,7 +603,7 @@ export default function BroadcastPage() {
     <div className="container mx-auto px-2 flex items-center justify-center min-h-screen py-10">
       <Card className="w-full max-w-4xl">
         <CardHeader>
-          <CardTitle>Broadcast Live</CardTitle>
+          <CardTitle>Start Streaming</CardTitle>
           <CardDescription>
             AI-Stylized livestream with continuous frame capturing and real-time processing
           </CardDescription>

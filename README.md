@@ -1,4 +1,4 @@
-# Cream - Creative Video stream 
+# DreamStream - AI-stylised Video streaming
 
 
 ### Timeline:

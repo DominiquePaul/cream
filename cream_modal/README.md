@@ -1,4 +1,4 @@
-# Cream Livestream Image Style Processor
+# DreamStream - Livestream Image Style Processor
 
 This application processes livestream frames with diffusion models to apply artistic styles in real-time.
 

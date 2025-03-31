@@ -20,7 +20,7 @@ export default function Home() {
     const fetchActiveStreams = async () => {
       try {
         // Use the environment variable for WebSocket URL
-        const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://cream-websocket-server.onrender.com';
+        const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
         
         // Create a temporary viewer ID for listing streams
         const tempId = "listing_" + Math.random().toString(36).substring(2, 15);
@@ -66,15 +66,14 @@ export default function Home() {
         <div className="flex flex-col items-center text-center mb-16">
           <h1 className="text-5xl font-bold text-gray-900 mb-6">AI-Stylized Livestreaming</h1>
           <p className="text-xl text-gray-600 max-w-3xl">
-            Create AI-stylized livestreams that transform your webcam feed into artistic creations using a diffusion model.
-            Each frame is processed with AI which takes approximately 1.5 seconds - perfect for creative and artistic streams.
+            Transform your webcam feed into art using diffusion models. Perfect for parties, events, and or kids.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
           <Card className="h-full transition-all hover:shadow-lg">
             <CardHeader>
-              <CardTitle>Start Broadcasting</CardTitle>
+              <CardTitle>Start livedreaming</CardTitle>
               <CardDescription>
                 Create your own AI-stylized livestream using your webcam
               </CardDescription>

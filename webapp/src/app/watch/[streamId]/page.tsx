@@ -818,7 +818,7 @@ export default function WatchPage() {
       <div className={`container mx-auto px-2 flex items-center justify-center min-h-screen py-10 ${isFullScreen ? 'hidden' : ''}`}>
         <Card className="w-full max-w-4xl">
           <CardHeader>
-            <CardTitle>Watching AI-Stylized Stream</CardTitle>
+            <CardTitle>Watching AI-Stylized Creative Stream</CardTitle>
             <CardDescription>
               Stream ID: {streamId}
             </CardDescription>
