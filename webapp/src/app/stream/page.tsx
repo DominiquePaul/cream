@@ -773,7 +773,7 @@ export default function StreamPage() {
       setStatus("Connection error");
       return null;
     }
-  }, [user?.id, sendFrames, setupMessageHandler, isModalStarting]);
+  }, [user?.id, sendFrames, setupMessageHandler, isModalStarting, isStreaming]);
 
   // Clean up all WebSocket connections on component unmount
   useEffect(() => {
@@ -1257,24 +1257,7 @@ export default function StreamPage() {
                     ) : (
                       <div className="text-white text-center p-4">
                         <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
-                        <p>Waiting for the first processed frame...</p>
-                        <p className="text-sm text-gray-300 mt-2">
-                          (This may take a few seconds as the AI model processes your video)
-                        </p>
-                        
-                        <button 
-                          onClick={() => {
-                            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                              console.log("Manual refresh: Requesting latest processed frame");
-                              wsRef.current.send(JSON.stringify({
-                                type: "get_latest_frame"
-                              }));
-                            }
-                          }} 
-                          className="mt-4 px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded"
-                        >
-                          Request Latest Frame
-                        </button>
+                        <p>Fetching the latest frame...</p>
                       </div>
                     )}
                   </div>
