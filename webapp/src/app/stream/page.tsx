@@ -54,10 +54,15 @@ const StreamDurationDisplay = ({
   streamId: string | null,
   user?: UserProfile | null
 }) => {
-  // Calculate hours, minutes, seconds
-  const hours = Math.floor(duration / 60);
-  const minutes = Math.floor(duration % 60);
-  const seconds = Math.floor((duration * 60) % 60);
+  // Calculate hours, minutes, seconds correctly
+  // duration is in minutes, so multiply by 60 to get seconds first
+  const totalSeconds = Math.floor(duration * 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  
+  // Add console logging for debugging
+  console.log(`StreamDurationDisplay Debug: duration=${duration}, totalSeconds=${totalSeconds}, hours=${hours}, minutes=${minutes}, seconds=${seconds}`);
   
   return (
     <Card className="shadow-md border-0 overflow-hidden py-0">
@@ -353,6 +358,9 @@ const CreditsTimer = ({ credits }: { credits: number }) => {
   // Calculate hours and minutes for display
   const hours = Math.floor(totalMinutes / 60);
   const minutes = Math.floor(totalMinutes % 60);
+  
+  // Add console logging for debugging
+  console.log(`CreditsTimer Debug: credits=${credits}, minutesPerCredit=${minutesPerCredit}, totalMinutes=${totalMinutes}, hours=${hours}, minutes=${minutes}`);
   
   return (
     <div className="flex items-center">
@@ -827,6 +835,9 @@ export default function StreamPage() {
         
         // Calculate duration in minutes (keep decimals for more accurate display)
         const durationMinutes = durationMs / (1000 * 60);
+        
+        // Log for debugging
+        console.log(`Updating duration: durationMs=${durationMs}ms, durationMinutes=${durationMinutes}min`);
         
         // Update state with the more precise value
         setStreamingDuration(durationMinutes);
