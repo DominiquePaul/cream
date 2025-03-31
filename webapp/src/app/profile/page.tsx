@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, CreditCard, History, User, BarChart, Clock, Users, Flame } from 'lucide-react';
 import Link from 'next/link';
+import { formatDate } from '@/utils/formatters';
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -53,7 +54,7 @@ export default async function ProfilePage() {
   const maxViewers = streamStats?.reduce((max, session) => Math.max(max, session.max_viewers || 0), 0) || 0;
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="container mx-auto px-4 py-8 max-w-5xl">
       <div className="flex flex-col md:flex-row gap-6 mb-8 items-start">
         <div className="flex-1">
           <h1 className="text-3xl font-bold">Your Profile</h1>
@@ -101,7 +102,11 @@ export default async function ProfilePage() {
             <div className="text-sm">
               <div className="font-medium">{profile?.full_name || user.email}</div>
               <div className="text-muted-foreground">{profile?.username ? `@${profile.username}` : ''}</div>
-              <div className="text-muted-foreground">Member since {new Date(profile?.created_at || Date.now()).toLocaleDateString()}</div>
+              <div className="text-muted-foreground">
+                Member since {profile?.created_at 
+                  ? formatDate(profile.created_at) 
+                  : formatDate(new Date().toISOString())}
+              </div>
             </div>
           </CardContent>
         </Card>

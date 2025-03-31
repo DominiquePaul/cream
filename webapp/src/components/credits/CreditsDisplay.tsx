@@ -8,6 +8,7 @@ import { Coins, AlertCircle, Clock, Sparkles } from 'lucide-react';
 import { formatNumber } from '@/utils/formatters';
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 // Updated credit packages to match backend
 const CREDIT_PACKAGES = [
@@ -21,7 +22,7 @@ const CREDIT_PACKAGES = [
 export default function CreditsDisplay({ showPurchase = true, compact = false, showTimeRemaining = false }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [showPurchaseForm, setShowPurchaseForm] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState('small');
   
   // Calculate remaining stream time in minutes
@@ -76,6 +77,74 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
     }
   };
 
+  // Credit purchase dialog component
+  const CreditPurchaseDialog = () => (
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant={compact ? "outline" : "default"}
+          size={compact ? "sm" : "default"}
+          onClick={() => setDialogOpen(true)}
+          disabled={loading}
+          className={compact ? "ml-2" : "w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"}
+        >
+          {loading ? 'Processing...' : 'Buy Credits'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Purchase Credits</DialogTitle>
+          <DialogDescription>
+            Choose a credit package to continue streaming
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="mt-4">
+          <RadioGroup 
+            defaultValue="small"
+            value={selectedPackage}
+            onValueChange={(value) => setSelectedPackage(value)}
+            className="space-y-3"
+          >
+            {CREDIT_PACKAGES.map((pkg) => (
+              <div key={pkg.id} className="flex items-center space-x-2 rounded-md border p-3 hover:bg-muted/50 transition-colors">
+                <RadioGroupItem value={pkg.id} id={`credits-${pkg.id}`} />
+                <Label htmlFor={`credits-${pkg.id}`} className="flex items-center justify-between flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <span>{pkg.label}</span>
+                    {pkg.isPopular && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        Popular
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-semibold">{pkg.price}</span>
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+          
+          <div className="flex justify-end gap-3 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBuyCredits}
+              disabled={loading}
+              className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
+            >
+              {loading ? 'Processing...' : 'Checkout'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (compact) {
     return (
       <div className="flex items-center gap-3">
@@ -89,17 +158,7 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
             <span className={timeStyle}>{timeString}</span>
           </div>
         )}
-        {showPurchase && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowPurchaseForm(true)}
-            disabled={loading}
-            className="ml-2"
-          >
-            {loading ? 'Processing...' : 'Buy Credits'}
-          </Button>
-        )}
+        {showPurchase && <CreditPurchaseDialog />}
       </div>
     );
   }
@@ -140,65 +199,11 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
             </p>
           </div>
         )}
-        
-        {showPurchase && showPurchaseForm && (
-          <div className="mt-4 border-t border-gray-200 pt-4">
-            <h3 className="text-sm font-medium mb-3">Purchase Credits</h3>
-            
-            <RadioGroup 
-              defaultValue="small"
-              value={selectedPackage}
-              onValueChange={(value) => setSelectedPackage(value)}
-              className="space-y-2"
-            >
-              {CREDIT_PACKAGES.map((pkg) => (
-                <div key={pkg.id} className="flex items-center space-x-2">
-                  <RadioGroupItem value={pkg.id} id={`credits-${pkg.id}`} />
-                  <Label htmlFor={`credits-${pkg.id}`} className="flex items-center justify-between flex-1 cursor-pointer">
-                    <span className="flex items-center">
-                      {pkg.label}
-                      {pkg.isPopular && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                          <Sparkles className="w-3 h-3 mr-1" />
-                          Popular
-                        </span>
-                      )}
-                    </span>
-                    <span>{pkg.price}</span>
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
-            
-            <div className="flex space-x-2 mt-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowPurchaseForm(false)}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleBuyCredits}
-                disabled={loading}
-                className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
-              >
-                {loading ? 'Processing...' : 'Checkout'}
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
       
-      {showPurchase && !showPurchaseForm && (
+      {showPurchase && (
         <CardFooter>
-          <Button
-            onClick={() => setShowPurchaseForm(true)}
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
-          >
-            {loading ? 'Processing...' : 'Buy Credits'}
-          </Button>
+          <CreditPurchaseDialog />
         </CardFooter>
       )}
     </Card>

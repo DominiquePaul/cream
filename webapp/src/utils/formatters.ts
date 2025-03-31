@@ -23,15 +23,16 @@ export function formatDuration(minutes: number): string {
 }
 
 /**
- * Format a date to a readable string
+ * Format a date to a simple day, month, year format
+ * @param date The date to format
  */
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  
+  const day = d.getDate();
+  const month = d.getMonth() + 1; // JavaScript months are 0-indexed
+  const year = d.getFullYear();
+  
+  // Format as DD/MM/YYYY
+  return `${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
 } 

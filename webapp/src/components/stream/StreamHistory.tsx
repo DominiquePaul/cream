@@ -73,6 +73,16 @@ export default function StreamHistory() {
             </div>
           </div>
         ))
+      ) : sessions.length === 0 ? (
+        <div className="text-center py-8 border-2 border-dashed border-muted rounded-lg bg-muted/10">
+          <PlayCircle className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+          <p className="text-muted-foreground">You haven&apos;t streamed yet</p>
+          <Link href="/stream/new">
+            <Button className="mt-4">
+              Start your first stream <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
       ) : error ? (
         <div className="text-center py-6 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">{error}</p>
@@ -83,16 +93,6 @@ export default function StreamHistory() {
           >
             Retry
           </Button>
-        </div>
-      ) : sessions.length === 0 ? (
-        <div className="text-center py-8 border-2 border-dashed border-muted rounded-lg bg-muted/10">
-          <PlayCircle className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">You haven&apos;t streamed yet</p>
-          <Link href="/stream/new">
-            <Button className="mt-4">
-              Start your first stream <ArrowUpRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
         </div>
       ) : (
         <>
@@ -108,6 +108,10 @@ export default function StreamHistory() {
                       <Calendar className="h-4 w-4 text-muted-foreground" />
                       <p className="text-sm font-medium">
                         {formatDate(session.start_time)}
+                        {" "}
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(session.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
                       </p>
                     </div>
                     <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
