@@ -183,6 +183,7 @@ export default function StreamPage() {
   const requestAnimationFrameRef = useRef<number | null>(null);
   const isStreamingRef = useRef(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const currentStreamIdRef = useRef<string | null>(null);
   const frameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingTimesRef = useRef<number[]>([]);
@@ -205,6 +206,21 @@ export default function StreamPage() {
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const { user, isAdmin, refreshUser } = useAuth();
+
+  // Add this new state to track Modal container startup
+  const [isModalStarting, setIsModalStarting] = useState(false);
+  const [startupProgress, setStartupProgress] = useState(0);
+  const startupTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Add a log when isModalStarting changes to debug visibility issues
+  useEffect(() => {
+    console.log(`Modal startup state changed: isModalStarting=${isModalStarting}, progress=${startupProgress}%`);
+  }, [isModalStarting, startupProgress]);
+
+  // Also log when the startStream function is called
+  useEffect(() => {
+    console.log(`Streaming state changed: isStreaming=${isStreaming}, isUpdating=${isUpdating}`);
+  }, [isStreaming, isUpdating]);
 
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -364,7 +380,7 @@ export default function StreamPage() {
         console.error("Error handling WebSocket message:", error);
       }
     };
-  }, [showProcessedView]);
+  }, [showProcessedView, setUpdatingPrompt, setStylePrompt]);
 
   // Image loading effect - adopted from watch page for proper image handling
   useEffect(() => {
@@ -491,10 +507,10 @@ export default function StreamPage() {
     }, 0);
   }, [imageData, nextImageData]);
 
-  // Track streaming duration and credit usage
+  // Modify the useEffect that tracks streaming duration
   useEffect(() => {
-    // Only start duration tracking when both conditions are met
-    if (isStreaming && streamStartTime.current !== null) {
+    // Only start duration tracking when both conditions are met AND WebSocket is connected
+    if (isStreaming && streamStartTime.current !== null && wsRef.current?.readyState === WebSocket.OPEN) {
       console.log("Starting duration timer with start time:", new Date(streamStartTime.current).toISOString());
       
       let lastDeductedMinute = 0; // Track when we last deducted credits
@@ -587,10 +603,10 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, user?.id, refreshUser, user]);
+  }, [isStreaming, user?.id, refreshUser, user, wsRef.current?.readyState]);
 
   // Define a function to establish the WebSocket connection
-  const establishWebSocketConnection = useCallback(() => {
+  const establishWebSocketConnection = useCallback(async () => {
     // Create a stream session in the database
     const startStreamSession = async () => {
       try {
@@ -645,6 +661,11 @@ export default function StreamPage() {
       const ws = new WebSocket(fullWsUrl);
       wsRef.current = ws;
       
+      // Add more context to the status messages
+      setStatus(isModalStarting 
+        ? "Initializing dream engine (this may take up to 45 seconds)..." 
+        : "Connecting to stream...");
+      
       // Log WebSocket state changes
       const logState = () => {
         const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
@@ -667,12 +688,17 @@ export default function StreamPage() {
           ws.send(JSON.stringify({ type: 'ping' }));
           console.log("Sent ping to test connection");
           
-          // Test endpoint call - request server version to check communication
+          // Test endpoint call - request server info to check communication
           ws.send(JSON.stringify({ type: 'get_server_info' }));
           console.log("Sent server info request to test bi-directional communication");
         } catch (err) {
           console.error("Error sending ping:", err);
         }
+        
+        // NOW set the stream start time - this is when billing should begin
+        // Only at this point do we know the container is ready
+        streamStartTime.current = Date.now();
+        console.log("Setting stream start time after WebSocket connected:", new Date(streamStartTime.current).toISOString());
         
         // Stream is created automatically by connecting to the broadcaster path
         setIsStreaming(true);
@@ -700,24 +726,33 @@ export default function StreamPage() {
         
         // Setup message handler with our new handler
         setupMessageHandler();
+        
+        setIsModalStarting(false);
+        if (startupTimerRef.current) {
+          clearInterval(startupTimerRef.current);
+          startupTimerRef.current = null;
+        }
+        setStartupProgress(100);
       };
       
-      // Replace the onmessage handler with our setup function call
-      setupMessageHandler();
-      
+      // Improve error handling for connection issues
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
-        // Try to get more information about the error
-        if (error instanceof Event && error.target) {
-          console.error("WebSocket error details:", {
-            url: fullWsUrl,
-            readyState: ws.readyState,
-            bufferedAmount: ws.bufferedAmount
-          });
+        // Don't immediately show errors during startup
+        if (!isModalStarting) {
+          setError("Connection error. Please try again.");
         }
-        setError("WebSocket error occurred - check console for details");
-        setStatus("Connection error");
-        clearInterval(stateInterval);
+        
+        // If we're still in startup phase, keep connection attempts going
+        if (isModalStarting && ws.readyState === WebSocket.CLOSED) {
+          console.log("Connection failed during startup. Retrying...");
+          // Wait a bit and retry
+          setTimeout(() => {
+            if (isStreaming && isModalStarting) {
+              establishWebSocketConnection();
+            }
+          }, 3000);
+        }
       };
       
       ws.onclose = (event) => {
@@ -738,7 +773,7 @@ export default function StreamPage() {
       setStatus("Connection error");
       return null;
     }
-  }, [user?.id, sendFrames, setupMessageHandler]);
+  }, [user?.id, sendFrames, setupMessageHandler, isModalStarting]);
 
   // Clean up all WebSocket connections on component unmount
   useEffect(() => {
@@ -772,23 +807,59 @@ export default function StreamPage() {
   }, []);
 
   const startStream = async () => {
-    setError(null);
-    
-    // Check if user has enough credits
-    if (!user || user.credits < 1) {
-      setError("You need at least 1 credit to start streaming");
-      return;
-    }
-    
-    setStatus("Starting stream...");
-    
     try {
+      console.log("🔄 startStream called - initializing stream setup");
+      
+      // Clear any previous errors
+      setError("");
+      
+      // Update status and state
+      setStatus("Preparing camera and starting stream...");
+      console.log("👉 Setting streaming states: isStreaming=false, isUpdating=true");
+      setIsStreaming(false);
+      setIsUpdating(true);
+      
+      // Set modal starting explicitly with a timeout to ensure it renders
+      console.log("👉 Setting isModalStarting=true");
+      setIsModalStarting(true);
+      setStartupProgress(0);
+      
+      // Use a redundant timeout to ensure state updates are applied
+      setTimeout(() => {
+        if (!isModalStarting) {
+          console.log("⚠️ isModalStarting was still false after initial set, forcing update");
+          setIsModalStarting(true);
+        }
+      }, 100);
+      
+      // Important: DON'T set streamStartTime here yet - wait until WebSocket is connected
+      // This ensures we don't bill users during cold start period
+      
+      // Start a timer to update progress estimation
+      if (startupTimerRef.current) {
+        console.log("Clearing existing startup timer");
+        clearInterval(startupTimerRef.current);
+        startupTimerRef.current = null;
+      }
+      
+      console.log("📊 Starting progress estimation timer");
+      startupTimerRef.current = setInterval(() => {
+        setStartupProgress(prev => {
+          const nextProgress = prev + (95 - prev) * 0.1;
+          const cappedProgress = Math.min(nextProgress, 95);
+          console.log(`Progress update: ${prev.toFixed(1)}% → ${cappedProgress.toFixed(1)}%`);
+          return cappedProgress;
+        });
+      }, 1000);
+      
+      console.log("🎥 Requesting access to camera");
       if (!videoRef.current) {
         throw new Error("Video element not found");
       }
       
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       videoRef.current.srcObject = stream;
+      console.log("✅ Camera access granted");
       
       videoRef.current.onloadedmetadata = () => {
         console.log("Video metadata loaded");
@@ -827,9 +898,19 @@ export default function StreamPage() {
       };
       
     } catch (err) {
-      console.error("Error accessing camera:", err);
+      console.error("❌ Error starting stream:", err);
       setError("Failed to access camera: " + (err instanceof Error ? err.message : String(err)));
       setStatus("Error: Camera access failed");
+      setIsStreaming(false); // Reset streaming state on error
+      streamStartTime.current = null; // Reset stream time on error
+      
+      // Ensure modal state is reset
+      console.log("👉 Resetting isModalStarting=false due to error");
+      setIsModalStarting(false);
+    } finally {
+      setIsUpdating(false);
+      // Note: we don't reset isModalStarting here as it should stay true until WebSocket connects
+      console.log("⏱️ Startup process initialized, waiting for WebSocket connection");
     }
   };
 
@@ -992,45 +1073,165 @@ export default function StreamPage() {
     }
   };
 
+  // At the end of the component, right before the return statement
+  // Add a fixed overlay component
+  const StartupOverlay = () => {
+    if (!isModalStarting) return null;
+    
+    // Add function to cancel the stream initialization
+    const cancelStartup = () => {
+      console.log("🛑 Cancelling stream startup process");
+      
+      // Clear any timers
+      if (startupTimerRef.current) {
+        clearInterval(startupTimerRef.current);
+        startupTimerRef.current = null;
+      }
+      
+      // Close WebSocket if it exists
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      
+      // Reset all related states
+      setIsModalStarting(false);
+      setIsUpdating(false);
+      setStatus("Stream initialization cancelled");
+      setStartupProgress(0);
+      setIsStreaming(false);
+      streamStartTime.current = null;
+    };
+    
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white/90 backdrop-blur-sm rounded-lg p-6 max-w-md shadow-2xl border-4 border-purple-500">
+          <div className="flex flex-col items-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+            <h2 className="text-xl font-bold text-purple-800 mb-3">Starting Dream Engine</h2>
+            <p className="text-sm mb-4 text-center">
+              Please wait while we start up the AI engine. This typically takes <strong>30-45 seconds</strong> and only happens on the first stream.
+            </p>
+            
+            <div className="w-full bg-gray-200 h-3 rounded-full mb-3">
+              <div 
+                className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${startupProgress}%` }}
+              />
+            </div>
+            
+            <div className="space-y-1 text-sm text-gray-700 w-full">
+              <p className="flex items-center">
+                <span className="mr-2 text-green-500">✓</span> Camera ready
+              </p>
+              <p className="flex items-center">
+                <span className="mr-2 text-purple-500">⏳</span> Starting AI processor
+              </p>
+              <p className="flex items-center">
+                <span className="mr-2 text-blue-500">ℹ</span> You won&apos;t be charged during startup
+              </p>
+            </div>
+            
+            <p className="mt-3 text-xs text-gray-500">Status: {status}</p>
+            
+            <button 
+              onClick={cancelStartup}
+              className="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md transition-colors"
+            >
+              Cancel Startup
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="container mx-auto px-4 py-4">
+      {/* Fixed overlay that's always visible during startup */}
+      <StartupOverlay />
+      
       <h1 className="text-2xl font-bold mb-4">Stream Setup</h1>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <Card className="mb-6 shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">
-                {isStreaming ? 'Live: Your Stream' : 'Start Streaming'}
-              </CardTitle>
-              <CardDescription>
-                {isStreaming 
-                  ? 'Your video is being processed and streamed' 
-                  : 'Configure your stream and press Start Streaming when ready'}
-              </CardDescription>
+          <Card className="shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle>Live Stream</CardTitle>
+              <CardDescription>Start your live stream here</CardDescription>
             </CardHeader>
-
             <CardContent>
-              <div 
-                className="relative rounded-md overflow-hidden bg-black"
-                style={{ 
-                  paddingTop: aspectRatio, // Dynamic aspect ratio
-                  position: "relative" 
-                }}
-              >
-                {/* For debugging */}
-                {(() => {
-                  console.log(`Render: showProcessedView=${showProcessedView}, hasImageData=${!!imageData}, hasNextImageData=${!!nextImageData}`);
-                  return null;
-                })()}
-                
+              {/* In-page loading overlay during modal startup */}
+              {isModalStarting && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-30 text-white text-center p-4">
+                  <div className="bg-white/90 p-6 rounded-lg border-2 border-purple-500 max-w-md shadow-lg text-gray-800">
+                    <div className="flex flex-col items-center">
+                      <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600 mb-4"></div>
+                      <h3 className="text-lg font-medium text-purple-800 mb-2">Starting Dream Engine</h3>
+                      <p className="mb-3 text-sm">This typically takes 30-45 seconds on the first connection.</p>
+                      <div className="w-full bg-gray-200 h-2 rounded-full mb-3">
+                        <div 
+                          className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out"
+                          style={{ width: `${startupProgress}%` }}
+                        />
+                      </div>
+                      <div className="space-y-1 text-sm text-gray-700 w-full">
+                        <p className="flex items-center">
+                          <span className="mr-2 text-green-500">✓</span> Camera ready
+                        </p>
+                        <p className="flex items-center">
+                          <span className="mr-2 text-purple-500">⏳</span> Starting AI processor
+                        </p>
+                        <p className="flex items-center">
+                          <span className="mr-2 text-blue-500">ℹ</span> You won&apos;t be charged during startup
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">Status: {status}</p>
+                      
+                      <button 
+                        onClick={() => {
+                          console.log("🛑 Cancelling stream startup from in-page overlay");
+                          
+                          // Clear any timers
+                          if (startupTimerRef.current) {
+                            clearInterval(startupTimerRef.current);
+                            startupTimerRef.current = null;
+                          }
+                          
+                          // Close WebSocket if it exists
+                          if (wsRef.current) {
+                            wsRef.current.close();
+                            wsRef.current = null;
+                          }
+                          
+                          // Reset all related states
+                          setIsModalStarting(false);
+                          setIsUpdating(false);
+                          setStatus("Stream initialization cancelled");
+                          setStartupProgress(0);
+                          setIsStreaming(false);
+                          streamStartTime.current = null;
+                        }}
+                        className="mt-3 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md text-sm transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Video container with relative positioning */}
+              <div className="relative w-full" style={{ paddingBottom: aspectRatio }}>
                 {/* Original webcam view */}
                 <video
                   ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-contain"
-                  style={{ display: showProcessedView ? 'none' : 'block' }}
-                  muted
+                  autoPlay
                   playsInline
+                  muted
+                  className={`absolute inset-0 w-full h-full object-cover bg-black rounded-md ${
+                    showProcessedView ? 'hidden' : 'block'
+                  }`}
                 />
                 
                 {/* Processed image view - Using the same approach as watch page */}
@@ -1120,12 +1321,12 @@ export default function StreamPage() {
         {/* Right sidebar */}
         <div className="lg:col-span-1">
           {/* Stream Duration Display */}
-          <StreamDurationDisplay 
-            duration={streamingDuration} 
-            isActive={isStreaming && streamStartTime.current !== null}
+          <StreamDurationDisplay
+            duration={streamingDuration}
+            isActive={isStreaming}
             onStart={startStream}
             onStop={stopStream}
-            isDisabled={!user || user.credits < 1}
+            isDisabled={isUpdating || isModalStarting}
           />
           
           {/* Style Configuration Card */}
@@ -1155,6 +1356,39 @@ export default function StreamPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Modal startup progress */}
+          {isModalStarting && (
+            <Card className="mt-6 shadow-md border-2 border-purple-500 animate-pulse">
+              <CardHeader className="pb-2 bg-purple-50">
+                <CardTitle className="text-lg flex items-center text-purple-800">
+                  <span className="mr-2">⏳</span> Starting Dream Engine
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">
+                    <strong>Please wait while we start up the AI engine.</strong> This typically takes 30-45 seconds and only happens on the first stream.
+                  </p>
+                  <div className="flex items-center space-x-3">
+                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-purple-500"></div>
+                    <div className="h-2 flex-grow bg-slate-200 rounded">
+                      <div 
+                        className="h-full bg-purple-500 rounded transition-all duration-300 ease-out"
+                        style={{ width: `${startupProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="bg-purple-50 p-2 rounded border border-purple-200 text-xs text-slate-700 space-y-1">
+                    <p>• The camera is ready, but we&apos;re starting the AI processor</p>
+                    <p>• You will not be charged during this startup period</p>
+                    <p>• Once connected, streaming will begin automatically</p>
+                    <p className="pt-1 font-medium">Current status: {status}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
       
