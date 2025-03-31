@@ -6,8 +6,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import AdminDebug from '@/components/AdminDebug';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
-import CreditsDisplay from '@/components/credits/CreditsDisplay';
 import { supabase } from '@/lib/supabase';
+import { Clock, Coins, Sparkles } from "lucide-react";
+import { formatNumber } from '@/utils/formatters';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
 // Define UserProfile type based on AuthContext
 interface UserProfile {
@@ -337,6 +341,140 @@ const StyleConfigCard = ({
         )}
       </CardContent>
     </Card>
+  );
+};
+
+// Create a custom CreditsTimer to properly display remaining time from credits
+const CreditsTimer = ({ credits }: { credits: number }) => {
+  // Calculate remaining minutes (1 credit = 5 minutes)
+  const minutesPerCredit = 5;
+  const totalMinutes = credits * minutesPerCredit;
+  
+  // Calculate hours and minutes for display
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.floor(totalMinutes % 60);
+  
+  return (
+    <div className="flex items-center">
+      <Clock className="h-4 w-4 text-gray-400 mr-1" />
+      <span className="text-gray-600">
+        {hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`}
+      </span>
+    </div>
+  );
+};
+
+// Component to handle the credits purchase dialog
+const CreditPurchaseButton = () => {
+  const [loading, setLoading] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState('small');
+  
+  const handleBuyCredits = async () => {
+    setLoading(true);
+    try {
+      // Create checkout session via API
+      const response = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          packageSize: selectedPackage,
+          successUrl: `${window.location.origin}/profile?checkout=success`,
+          cancelUrl: `${window.location.origin}/profile?checkout=canceled`,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create checkout session');
+      }
+      
+      // Redirect to Stripe checkout
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('No checkout URL provided');
+      }
+    } catch (error) {
+      console.error('Error starting checkout:', error);
+      alert('Failed to start checkout process. Please try again.');
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setDialogOpen(true)}
+          disabled={loading}
+          className="ml-2"
+        >
+          {loading ? 'Processing...' : 'Buy Credits'}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Purchase Credits</DialogTitle>
+          <DialogDescription>
+            Choose a credit package to continue streaming
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="mt-4">
+          <RadioGroup 
+            defaultValue="small"
+            value={selectedPackage}
+            onValueChange={(value) => setSelectedPackage(value)}
+            className="space-y-3"
+          >
+            {[
+              { id: 'small', amount: 12, label: '12 credits', isPopular: true, price: '€12.00' },
+              { id: 'medium', amount: 30, label: '30 credits', isPopular: false, price: '€30.00' },
+              { id: 'large', amount: 60, label: '60 credits', isPopular: false, price: '€60.00' },
+              { id: 'xlarge', amount: 120, label: '120 credits', isPopular: false, price: '€120.00' },
+            ].map((pkg) => (
+              <div key={pkg.id} className="flex items-center space-x-2 rounded-md border p-3 hover:bg-muted/50 transition-colors">
+                <RadioGroupItem value={pkg.id} id={`credits-${pkg.id}`} />
+                <Label htmlFor={`credits-${pkg.id}`} className="flex items-center justify-between flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <span>{pkg.label}</span>
+                    {pkg.isPopular && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        Popular
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-semibold">{pkg.price}</span>
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+          
+          <div className="flex justify-end gap-3 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBuyCredits}
+              disabled={loading}
+              className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
+            >
+              {loading ? 'Processing...' : 'Checkout'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -1396,11 +1534,16 @@ export default function StreamPage() {
             {user && (
               <div className="flex items-center px-3 py-2 bg-white rounded-lg shadow-sm border border-slate-200">
                 <div className="relative group">
-                  <CreditsDisplay 
-                    compact={true} 
-                    showTimeRemaining={true} 
-                    showPurchase={true}
-                  />
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center">
+                      <Coins className="h-4 w-4 text-yellow-500 mr-1" />
+                      <span className={user.credits < 3 ? "text-red-600 font-bold" : "text-green-600 font-bold"}>
+                        {formatNumber(user?.credits || 0)}
+                      </span>
+                    </div>
+                    <CreditsTimer credits={user.credits || 0} />
+                    <CreditPurchaseButton />
+                  </div>
                   <div className="absolute left-0 top-full mt-2 w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                     <div className="absolute -top-1 left-4 w-2 h-2 bg-slate-800 transform rotate-45"></div>
                     <p>Time shown is how long you can continue streaming with your current credit balance.</p>
@@ -1495,103 +1638,15 @@ export default function StreamPage() {
               <canvas ref={canvasRef} className="hidden" />
               
               {/* Stream controls panel */}
-              <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-t border-indigo-100">
-                <div className="flex flex-wrap items-center justify-between gap-4">
+              {/* {isStreaming && (
+                <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-t border-indigo-100">
                   <div className="flex items-center">
-                    {isStreaming && (
-                      <div className="flex items-center mr-4">
-                        <div className="h-3 w-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                        <span className="text-sm font-medium text-green-700">Live</span>
-                      </div>
-                    )}
-                    <div className="text-sm text-gray-600">
-                      {status}
-                    </div>
-                  </div>
-                  
-                  <div>
-                    {!isStreaming ? (
-                      <Button 
-                        onClick={startStream}
-                        disabled={isUpdating || isModalStarting}
-                        className="bg-indigo-600 hover:bg-indigo-700"
-                        size="sm"
-                      >
-                        <span className="mr-2">⚡</span>
-                        Start Streaming
-                      </Button>
-                    ) : (
-                      <Button 
-                        onClick={stopStream} 
-                        variant="destructive"
-                        size="sm"
-                      >
-                        Stop Stream
-                      </Button>
-                    )}
+                    <div className="h-3 w-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                    <span className="text-sm font-medium text-green-700">Live</span>
                   </div>
                 </div>
-              </div>
+              )} */}
             </Card>
-            
-            {/* Stream info panel */}
-            {isStreaming && (
-              <Card className="shadow-md py-0">
-                <CardHeader className="pb-2 pt-2">
-                  <CardTitle className="text-base flex items-center text-indigo-800">
-                    <span className="mr-2">📊</span> Stream Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Duration */}
-                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
-                      <div className="text-xs text-indigo-600 mb-1">Duration</div>
-                      <div className="font-semibold">
-                        {Math.floor(streamingDuration / 60) > 0 ? 
-                          `${Math.floor(streamingDuration / 60)}h ` : ''}
-                        {Math.floor(streamingDuration % 60)}m {Math.floor((streamingDuration * 60) % 60)}s
-                      </div>
-                    </div>
-                    
-                    {/* Credit Usage */}
-                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
-                      <div className="text-xs text-indigo-600 mb-1">Credit Usage</div>
-                      <div className="font-semibold">
-                        {(streamingDuration * 0.2).toFixed(2)} credits
-                      </div>
-                    </div>
-                    
-                    {/* Stream URL */}
-                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
-                      <div className="text-xs text-indigo-600 mb-1">Stream URL</div>
-                      <div className="flex items-center">
-                        <input
-                          type="text"
-                          readOnly
-                          value={`${window.location.origin}/watch/${currentStreamIdRef.current || (user?.username?.replace(/[^a-zA-Z0-9_-]/g, '_') || '')}`}
-                          className="text-xs bg-white/70 border border-indigo-100 rounded p-1 flex-grow"
-                          onClick={(e) => e.currentTarget.select()}
-                        />
-                        <button
-                          className="ml-1 p-1 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
-                          title="Copy to clipboard"
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/watch/${currentStreamIdRef.current || (user?.username?.replace(/[^a-zA-Z0-9_-]/g, '_') || '')}`);
-                            alert("Stream URL copied to clipboard!");
-                          }}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
             
             {/* Error display */}
             {error && (

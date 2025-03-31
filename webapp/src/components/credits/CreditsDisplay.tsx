@@ -36,6 +36,9 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
     ? `${hours}h ${minutes}m`
     : `${minutes}m`;
   
+  // Add a debug string to check values
+  console.log(`Credits Display Debug: credits=${user?.credits}, remainingMins=${remainingMinutes}, hours=${hours}, mins=${minutes}, timeString="${timeString}"`);
+  
   // Color styling based on remaining time
   const isLowCredits = remainingMinutes < 10;
   const creditStyle = isLowCredits ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
