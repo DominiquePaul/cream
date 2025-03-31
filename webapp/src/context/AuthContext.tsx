@@ -11,6 +11,7 @@ interface UserProfile {
   username?: string;
   full_name?: string;
   is_admin: boolean;
+  credits: number;
 }
 
 interface AuthContextType {
@@ -76,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           username: profile.username,
           full_name: profile.full_name,
           is_admin: profile.is_admin || false,
+          credits: profile.credits || 0,
         });
         setIsAdmin(profile.is_admin || false);
       }

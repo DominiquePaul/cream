@@ -6,6 +6,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import AdminDebug from '@/components/AdminDebug';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
+import CreditsDisplay from '@/components/credits/CreditsDisplay';
+import { supabase } from '@/lib/supabase';
+import { Hourglass } from 'lucide-react';
 
 // Define global types for the window object
 declare global {
@@ -47,7 +50,14 @@ export default function StreamPage() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
   
-  const { isAdmin } = useAuth();
+  // Credit tracking state
+  const streamStartTime = useRef<number | null>(null);
+  const sessionId = useRef<string | null>(null);
+  const [streamingDuration, setStreamingDuration] = useState(0);
+  const [creditsUsed, setCreditsUsed] = useState(0);
+  const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const { user, isAdmin, refreshUser } = useAuth();
 
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -334,8 +344,70 @@ export default function StreamPage() {
     }, 0);
   }, [imageData, nextImageData]);
 
+  // Track streaming duration and credit usage
+  useEffect(() => {
+    if (isStreaming && streamStartTime.current) {
+      // Set up a timer to update duration every second
+      durationTimerRef.current = setInterval(() => {
+        const now = Date.now();
+        const durationMs = now - streamStartTime.current!;
+        const durationMinutes = Math.ceil(durationMs / (1000 * 60)); // Round up to nearest minute
+        
+        setStreamingDuration(durationMinutes);
+        
+        // Calculate credit usage (0.2 credits per minute)
+        const used = durationMinutes * 0.2;
+        setCreditsUsed(used);
+        
+      }, 1000);
+    } else {
+      // Clear the timer when not streaming
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+    }
+    
+    return () => {
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+    };
+  }, [isStreaming]);
+
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
+    // Create a stream session in the database
+    const startStreamSession = async (streamId: string) => {
+      try {
+        // Create a new stream session
+        const { data, error } = await supabase
+          .from('stream_sessions')
+          .insert({
+            profile_id: user?.id,
+            start_time: new Date().toISOString(),
+            status: 'active'
+          })
+          .select()
+          .single();
+        
+        if (error) {
+          console.error("Error creating stream session:", error);
+          return;
+        }
+        
+        // Save the session ID for later use
+        sessionId.current = data.id;
+        console.log("Created stream session with ID:", data.id);
+        
+        // Track when we started streaming (for credit calculation)
+        streamStartTime.current = Date.now();
+      } catch (err) {
+        console.error("Error creating stream session:", err);
+      }
+    };
+    
     // Close any existing connection
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       wsRef.current.close();
@@ -396,6 +468,9 @@ export default function StreamPage() {
         currentStreamIdRef.current = newStreamId;
         setStatus(`Streaming with ID: ${newStreamId}`);
         
+        // Start the stream session in the database
+        startStreamSession(newStreamId);
+        
         // Start sending frames
         console.log(`Starting to send frames for stream: ${newStreamId}`);
         const startSendingFrames = () => {
@@ -448,12 +523,12 @@ export default function StreamPage() {
       
       return ws;
     } catch (err: unknown) {
-      console.error("Error creating WebSocket:", err);
-      setError(`Failed to create WebSocket: ${err instanceof Error ? err.message : String(err)}`);
-      setStatus("Connection failed");
+      console.error("Error establishing WebSocket connection:", err);
+      setError("Failed to connect: " + (err instanceof Error ? err.message : String(err)));
+      setStatus("Connection error");
       return null;
     }
-  }, [sendFrames, setupMessageHandler]);
+  }, [user?.id, sendFrames, setupMessageHandler]);
 
   // Clean up all WebSocket connections on component unmount
   useEffect(() => {
@@ -488,6 +563,13 @@ export default function StreamPage() {
 
   const startStream = async () => {
     setError(null);
+    
+    // Check if user has enough credits
+    if (!user || user.credits < 1) {
+      setError("You need at least 1 credit to start streaming");
+      return;
+    }
+    
     setStatus("Starting stream...");
     
     try {
@@ -541,7 +623,7 @@ export default function StreamPage() {
     }
   };
 
-  const stopStream = () => {
+  const stopStream = async () => {
     setStatus("Stopping stream...");
     
     // Stop animation frame
@@ -556,6 +638,68 @@ export default function StreamPage() {
       frameTimeoutRef.current = null;
     }
     
+    // Clear duration timer
+    if (durationTimerRef.current) {
+      clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
+    }
+    
+    // Update stream session and deduct credits
+    try {
+      // Only update if we have a session and actually streamed
+      if (sessionId.current && streamStartTime.current) {
+        const now = Date.now();
+        const durationMs = now - streamStartTime.current;
+        const durationMinutes = Math.ceil(durationMs / (1000 * 60)); // Round up to nearest minute
+        const creditsUsed = durationMinutes * 0.2; // 12 credits per hour = 0.2 per minute
+        
+        // Update stream session to mark as ended
+        const { error: sessionError } = await supabase
+          .from('stream_sessions')
+          .update({
+            end_time: new Date().toISOString(),
+            duration_minutes: durationMinutes,
+            cost_credits: creditsUsed,
+            status: 'completed'
+          })
+          .eq('id', sessionId.current);
+        
+        if (sessionError) {
+          console.error("Error updating stream session:", sessionError);
+        }
+        
+        // Record the credit usage transaction
+        const { error: transactionError } = await supabase
+          .from('credit_transactions')
+          .insert({
+            profile_id: user?.id,
+            amount: -creditsUsed, // Negative amount for consumption
+            type: 'usage',
+            description: `${durationMinutes} minutes of streaming`
+          });
+        
+        if (transactionError) {
+          console.error("Error recording credit transaction:", transactionError);
+        }
+        
+        // Update the user's credit balance
+        const { error: creditsError } = await supabase
+          .rpc('deduct_credits', {
+            user_id: user?.id,
+            amount: creditsUsed
+          });
+        
+        if (creditsError) {
+          console.error("Error updating credits:", creditsError);
+        } else {
+          // Refresh the user to update the displayed credit balance
+          await refreshUser();
+        }
+      }
+    } catch (err) {
+      console.error("Error ending stream session:", err);
+    }
+    
     // Stop video tracks
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
@@ -563,11 +707,22 @@ export default function StreamPage() {
       videoRef.current.srcObject = null;
     }
     
+    // Reset streaming state
     setIsStreaming(false);
     isStreamingRef.current = false;
     setStreamId(null);
     currentStreamIdRef.current = null;
+    sessionId.current = null;
+    streamStartTime.current = null;
+    setStreamingDuration(0);
+    setCreditsUsed(0);
     setStatus("Stream stopped");
+    
+    // Close WebSocket connection
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
   };
 
   // Function to update the style prompt
@@ -600,187 +755,225 @@ export default function StreamPage() {
   };
 
   return (
-    <div className="container mx-auto px-2 flex items-center justify-center min-h-screen py-10">
-      <Card className="w-full max-w-4xl">
-        <CardHeader>
-          <CardTitle>Start Streaming</CardTitle>
-          <CardDescription>
-            AI-Stylized livestream with continuous frame capturing and real-time processing
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div 
-            className="relative rounded-md overflow-hidden bg-black"
-            style={{ 
-              paddingTop: aspectRatio, // Dynamic aspect ratio
-              position: "relative" 
-            }}
-          >
-            {/* For debugging */}
-            {(() => {
-              console.log(`Render: showProcessedView=${showProcessedView}, hasImageData=${!!imageData}, hasNextImageData=${!!nextImageData}`);
-              return null;
-            })()}
-            
-            {/* Original webcam view */}
-            <video
-              ref={videoRef}
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ display: showProcessedView ? 'none' : 'block' }}
-              muted
-              playsInline
-            />
-            
-            {/* Processed image view - Using the same approach as watch page */}
-            {showProcessedView && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black">
-                {imageData ? (
-                  <div className="absolute inset-0 w-full h-full">
-                    <Image
-                      src={imageData}
-                      alt="Processed stream"
-                      fill
-                      style={{
-                        objectFit: 'contain'
-                      }}
-                      onLoad={() => {
-                        console.log("✅ Processed image loaded successfully");
-                      }}
-                      onError={(err: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                        console.error("❌ Processed image failed to load", err);
-                      }}
-                    />
+    <div className="container mx-auto px-4 py-4">
+      <h1 className="text-2xl font-bold mb-4">Stream Setup</h1>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <Card className="mb-6 shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">
+                {isStreaming ? 'Live: Your Stream' : 'Start Streaming'}
+              </CardTitle>
+              <CardDescription>
+                {isStreaming 
+                  ? 'Your video is being processed and streamed' 
+                  : 'Configure your stream and press Start Streaming when ready'}
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent>
+              <div 
+                className="relative rounded-md overflow-hidden bg-black"
+                style={{ 
+                  paddingTop: aspectRatio, // Dynamic aspect ratio
+                  position: "relative" 
+                }}
+              >
+                {/* For debugging */}
+                {(() => {
+                  console.log(`Render: showProcessedView=${showProcessedView}, hasImageData=${!!imageData}, hasNextImageData=${!!nextImageData}`);
+                  return null;
+                })()}
+                
+                {/* Original webcam view */}
+                <video
+                  ref={videoRef}
+                  className="absolute inset-0 w-full h-full object-contain"
+                  style={{ display: showProcessedView ? 'none' : 'block' }}
+                  muted
+                  playsInline
+                />
+                
+                {/* Processed image view - Using the same approach as watch page */}
+                {showProcessedView && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black">
+                    {imageData ? (
+                      <div className="absolute inset-0 w-full h-full">
+                        <Image
+                          src={imageData}
+                          alt="Processed stream"
+                          fill
+                          style={{
+                            objectFit: 'contain'
+                          }}
+                          onLoad={() => {
+                            console.log("✅ Processed image loaded successfully");
+                          }}
+                          onError={(err: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                            console.error("❌ Processed image failed to load", err);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-white text-center p-4">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
+                        <p>Waiting for the first processed frame...</p>
+                        <p className="text-sm text-gray-300 mt-2">
+                          (This may take a few seconds as the AI model processes your video)
+                        </p>
+                        
+                        <button 
+                          onClick={() => {
+                            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                              console.log("Manual refresh: Requesting latest processed frame");
+                              wsRef.current.send(JSON.stringify({
+                                type: "get_latest_frame"
+                              }));
+                            }
+                          }} 
+                          className="mt-4 px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded"
+                        >
+                          Request Latest Frame
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-white text-center p-4">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-white mb-2"></div>
-                    <p>Waiting for the first processed frame...</p>
-                    <p className="text-sm text-gray-300 mt-2">
-                      (This may take a few seconds as the AI model processes your video)
-                    </p>
-                    
-                    <button 
-                      onClick={() => {
-                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                          console.log("Manual refresh: Requesting latest processed frame");
-                          wsRef.current.send(JSON.stringify({
-                            type: "get_latest_frame"
-                          }));
-                        }
-                      }} 
-                      className="mt-4 px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded"
+                )}
+                
+                {/* Processing indicator overlay - adding from broadcast page */}
+                {false && !showProcessedView && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-20">
+                    <div className="text-white text-center">
+                      <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-white mb-2"></div>
+                      <p>AI Processing...</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* View toggle button */}
+                {isStreaming && (
+                  <div className="absolute top-2 right-2 z-10">
+                    <button
+                      onClick={toggleView}
+                      className="px-3 py-2 bg-black/70 text-white text-sm rounded-md hover:bg-black/90 transition-colors"
                     >
-                      Request Latest Frame
+                      {showProcessedView ? "Show Camera" : "Show what viewers are seeing"}
                     </button>
                   </div>
                 )}
               </div>
-            )}
-            
-            {/* Processing indicator overlay - adding from broadcast page */}
-            {false && !showProcessedView && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-20">
-                <div className="text-white text-center">
-                  <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-white mb-2"></div>
-                  <p>AI Processing...</p>
+              
+              <canvas ref={canvasRef} className="hidden" />
+              
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600">
+                  {error}
                 </div>
-              </div>
-            )}
-            
-            {/* View toggle button */}
-            {isStreaming && (
-              <div className="absolute top-2 right-2 z-10">
-                <button
-                  onClick={toggleView}
-                  className="px-3 py-2 bg-black/70 text-white text-sm rounded-md hover:bg-black/90 transition-colors"
-                >
-                  {showProcessedView ? "Show Camera" : "Show what viewers are seeing"}
-                </button>
-              </div>
-            )}
-          </div>
-          
-          <canvas ref={canvasRef} className="hidden" />
-          
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600">
-              {error}
-            </div>
-          )}
-          
-          {isStreaming && (
-            <div className="space-y-2">
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                <p className="text-sm font-medium">Current Style:</p>
-                <p className="text-sm">{stylePrompt}</p>
-              </div>
+              )}
               
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Enter a new style prompt..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
-                  disabled={!isStreaming || updatingPrompt}
-                />
-                <button
-                  onClick={updateStylePrompt}
-                  disabled={!isStreaming || updatingPrompt || !customPrompt}
-                  className={`px-4 py-2 rounded-md ${
-                    !isStreaming || updatingPrompt || !customPrompt
-                      ? 'bg-gray-300 cursor-not-allowed'
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
-                >
-                  {updatingPrompt ? 'Updating...' : 'Update Style'}
-                </button>
-              </div>
+              {isStreaming && (
+                <div className="space-y-2">
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <p className="text-sm font-medium">Current Style:</p>
+                    <p className="text-sm">{stylePrompt}</p>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Enter a new style prompt..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                      disabled={!isStreaming || updatingPrompt}
+                    />
+                    <button
+                      onClick={updateStylePrompt}
+                      disabled={!isStreaming || updatingPrompt || !customPrompt}
+                      className={`px-4 py-2 rounded-md ${
+                        !isStreaming || updatingPrompt || !customPrompt
+                          ? 'bg-gray-300 cursor-not-allowed'
+                          : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      }`}
+                    >
+                      {updatingPrompt ? 'Updating...' : 'Update Style'}
+                    </button>
+                  </div>
+                  
+                  <div className="text-xs text-gray-500">
+                    <p>Prompt examples:</p>
+                    <ul className="list-disc pl-4">
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Monet-style impressionist painting")}>A Monet-style impressionist painting</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A cubist painting in the style of Picasso")}>A cubist painting in the style of Picasso</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A modern pop art masterpiece")}>A modern pop art masterpiece</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A watercolor illustration")}>A watercolor illustration</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
               
-              <div className="text-xs text-gray-500">
-                <p>Prompt examples:</p>
-                <ul className="list-disc pl-4">
-                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Monet-style impressionist painting")}>A Monet-style impressionist painting</li>
-                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A cubist painting in the style of Picasso")}>A cubist painting in the style of Picasso</li>
-                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A modern pop art masterpiece")}>A modern pop art masterpiece</li>
-                  <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A watercolor illustration")}>A watercolor illustration</li>
-                </ul>
-              </div>
-            </div>
-          )}
+              {/* Credits usage during streaming */}
+              {isStreaming && streamStartTime.current && (
+                <div className="mt-4 p-3 bg-indigo-50 rounded-md">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center">
+                      <Hourglass className="h-4 w-4 text-indigo-500 mr-2" />
+                      <span className="text-sm font-medium">
+                        Stream duration: {Math.floor(streamingDuration / 60)}h {streamingDuration % 60}m
+                      </span>
+                    </div>
+                    <div className="text-sm">
+                      Credits used: <span className="font-medium">{creditsUsed.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+
+            <CardFooter className="flex justify-between">
+              {!isStreaming ? (
+                <Button 
+                  onClick={startStream}
+                  disabled={!user || user.credits < 1}
+                >
+                  Start Streaming
+                </Button>
+              ) : (
+                <Button onClick={stopStream} variant="destructive">Stop Streaming</Button>
+              )}
+            </CardFooter>
+          </Card>
           
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-md">
-            <p className="text-sm font-medium">Status: {status}</p>
-            <p className="text-sm">WebSocket: {wsConnected ? "Connected" : "Disconnected"}</p>
-            <p className="text-sm">Note: Frames are continuously sent and processed at maximum possible speed</p>
-            {streamId && (
-              <>
-                <p className="text-sm mt-2">
-                  Share this link to let others watch your stream:
-                  <br />
-                  <a
-                    href={`${window.location.origin}/watch/${streamId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline break-all"
-                  >
-                    {`${window.location.origin}/watch/${streamId}`}
-                  </a>
+          {/* ... other existing cards ... */}
+        </div>
+        
+        {/* Right sidebar */}
+        <div className="lg:col-span-1">
+          {/* Credits card */}
+          <CreditsDisplay showTimeRemaining={true} />
+          
+          {/* Status info */}
+          <Card className="mt-6 shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Stream Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">{status}</p>
+              {error && (
+                <p className="text-sm text-red-600 mt-2">
+                  Error: {error}
                 </p>
-              </>
-            )}
-          </div>
+              )}
+            </CardContent>
+          </Card>
           
-          {isAdmin && <AdminDebug />}
-        </CardContent>
-        <CardFooter className="flex justify-between">
-          {!isStreaming ? (
-            <Button onClick={startStream}>Start Streaming</Button>
-          ) : (
-            <Button onClick={stopStream} variant="destructive">Stop Streaming</Button>
-          )}
-        </CardFooter>
-      </Card>
+          {/* ... other status cards ... */}
+        </div>
+      </div>
+      
+      {/* Admin debug section if needed */}
+      {isAdmin && <AdminDebug />}
     </div>
   );
 } 

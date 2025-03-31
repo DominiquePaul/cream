@@ -1,6 +1,6 @@
 Project description:
 
-I am building a website where users can create stylised livestreams that others can view. Users can start stream via their webcam on a website or via a raspberry pi. Other users can then watch this stream on a public URL. What differentiates this product is that the images/video stream uploaded is stylised using an img2img diffusion model. The idea is that this would set up at a home party, a bar, or any other place for people to interact with the stream of themselves or to creatively share whats happening with others.
+I am building DreamStream, a website where users can create stylised livestreams that others can view. Users can start stream via their webcam on a website or via a raspberry pi. Other users can then watch this stream on a public URL. What differentiates this product is that the images/video stream uploaded is stylised using an img2img diffusion model. The idea is that this would set up at a home party, a bar, or any other place for people to interact with the stream of themselves or to creatively share whats happening with others.
 
 
 Main challenges:
@@ -17,14 +17,45 @@ General instructions:
 
 
 These are my supabase tables:
-Supabase Tables:
-
-profiles:
-- id: uuid (primary key)
-- username: text
-- full_name: text  
-- email: text
-- referral_source: text
-- is_admin: boolean
-- created_at: timestamptz
-- updated_at: timestamptz
+[
+  {
+    "table_name": "credit_transactions",
+    "columns": [
+      "id uuid NOT NULL DEFAULT uuid_generate_v4()",
+      "type text NOT NULL",
+      "payment_id text",
+      "description text",
+      "created_at timestamp with time zone DEFAULT now()",
+      "amount real NOT NULL",
+      "profile_id uuid"
+    ]
+  },
+  {
+    "table_name": "profiles",
+    "columns": [
+      "credits real DEFAULT '12'::real",
+      "is_admin boolean DEFAULT false",
+      "created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now())",
+      "updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now())",
+      "id uuid NOT NULL",
+      "username text",
+      "full_name text",
+      "email text",
+      "referral_source text"
+    ]
+  },
+  {
+    "table_name": "stream_sessions",
+    "columns": [
+      "end_time timestamp with time zone",
+      "created_at timestamp with time zone DEFAULT now()",
+      "start_time timestamp with time zone NOT NULL",
+      "status text DEFAULT 'active'::text",
+      "profile_id uuid",
+      "id uuid NOT NULL DEFAULT uuid_generate_v4()",
+      "max_viewers integer DEFAULT 0",
+      "cost_credits real",
+      "duration_minutes integer"
+    ]
+  }
+]

@@ -134,3 +134,171 @@ I suggest we tackle these workpages in the following order:
 - Viewer Experience (public-facing features)
 Streamer Controls (enhances user experience)
 ML Model Integration (advanced functionality)
+
+
+
+# Add credit purchasing system to the webapp: 
+I next want to add the following to dreamstream:
+
+- Users can only start streaming if they have more than 1 credit
+- 1 hour of streaming costs 12 credits. 
+- 1 credit = 1 euro
+- Users start with 12 credits to play around when they create an account. 
+- Users can buy more credits with a stripe checkout. In their profile as well as on the streaming page they can see the number of credits they have and also see a button which allows they to purchase a variable number of credits. 
+- While the users are streaming their credits are consumed, we need to keep track of the duration of the stream. The tracker starts counting after the first frame is received. It stops when the user clicks "stop stream". 
+- We should also keep track of stream sessions, including length, cost, max_number of viewers etc. in our sql database. 
+
+
+Help me write a detailed ticket. Ask me questions first on how i want to implement this. Provide me with options on each choice. Lets start with high level questions
+
+### Model response:
+
+Credits System Implementation Questions
+Before drafting the ticket, I'd like to understand your preferences for several key aspects of this credits system. Let me ask some high-level questions to guide our discussion:
+Database Structure
+How would you like to model credits in the database?
+Options:
+Add a credits column to the existing profiles table
+Create a separate credits table that references profiles (better for tracking transaction history)
+Use a hybrid approach with both a column in profiles (for current balance) and a transactions table
+Stream Session Tracking
+How do you want to track stream sessions in the database?
+Options:
+Create a stream_sessions table with fields for start time, end time, cost, viewers, etc.
+Create a more complex system with separate tables for streams and viewer sessions
+Credits Calculation
+How precisely do you want to calculate credit consumption?
+Options:
+Simple approach: Round up to the nearest hour (e.g., 1h 5min = 2h = 24 credits)
+Moderate precision: Calculate by the minute (e.g., 65min = 65/60 * 12 = 13 credits)
+High precision: Calculate by the second (most accurate but complex)
+Credit Purchase Options
+What credit purchase options do you want to offer?
+Options:
+Fixed packages (e.g., 12, 36, 60, 120 credits)
+Custom amount where users enter how many they want
+Subscription model (recurring credits per month)
+Real-time Credit Display
+How should we display remaining credits during streaming?
+Options:
+Simple countdown of remaining stream time
+Credits remaining counter
+Both time and credits remaining
+Error Handling
+How should we handle running out of credits during a stream?
+Options:
+Abruptly end the stream when credits hit zero
+Show a warning before credits run out and offer a quick-purchase option
+Allow a short grace period before ending the stream
+Credit Purchase Implementation
+How would you like to implement the credit purchase functionality?
+Options:
+Stripe Checkout (simplest, redirects to Stripe-hosted page)
+Stripe Elements (embedded in your site, more customizable)
+Custom payment form with Stripe API
+
+
+### User response:
+
+1. Db structure: I like the hybrid approach keeping track of balance and transactions
+2. Stream session tracking: lets take the simple appraoch in (1) first. 
+3. Credits calculation: Calculate by the minute and round up to the next full minute. 2 seconds of streaming -> 1 minute, 64 seconds of streaming -> 2 minutes. 
+4. Credit purchase options: Users should be able to choose the number of credits freely, but should be nudged to buying 12 credits. I do not want a subscription model. 
+5. Real-time Credit Display: I'd like to show the remaining minutes left. If there are less than 10 minutes left, then it should have more of an "alert" vibe to draw the users attention. 
+6. Error handling: If a user rusn out of credits the stream should end and the user should be notified that its because he/she has no credits left. 
+7. Credit purchase implementation: Stripe checkout seems to be the smplest. Let me know what you need to me to setup in stripe and which links/tokens i can provide.
+
+
+### Ticket created:
+
+### Update Profiles Table
+- Add credits column (decimal/float, default: 12.0) to track current balance
+
+### Create Transactions Table
+- Apply to prompt_snipp...
+
+### Create Stream Sessions Table
+- Apply to prompt_snipp...
+- SQL:
+```sql
+CREATE TABLE stream_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_id UUID REFERENCES profiles(id),
+  start_time TIMESTAMPTZ NOT NULL,
+  end_time TIMESTAMPTZ,
+  duration_minutes INTEGER, -- calculated when stream ends
+  cost_credits DECIMAL(10,2), -- calculated when stream ends
+  max_viewers INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'active', -- 'active', 'completed', 'ended_no_credits'
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Feature Requirements
+- Credit Balance Display
+  - Add credit balance display to user profile page
+  - Add credit balance display to streaming page
+  - Include visual indicator when credits are running low (< 10 minutes remaining)
+- Credit Purchase
+  - Implement "Buy Credits" button on profile and streaming pages
+  - Create form allowing users to select number of credits to purchase
+  - Default/suggested amount: 12 credits
+  - Allow custom amounts
+  - Integrate Stripe Checkout for payment processing
+  - Update user's credit balance upon successful purchase
+  - Record transaction in credit_transactions table
+- Streaming Credit Validation & Usage
+  - Check if user has at least 1 credit before allowing stream start
+  - Show error and prevent streaming if insufficient credits
+  - Start tracking stream duration after first frame is received
+  - Calculate credit usage by the minute (round up to nearest minute)
+  - Update credits balance in real-time during streaming
+  - Display remaining stream time (in minutes) during stream
+  - Apply visual alert styling when less than 10 minutes of streaming time remains
+- Stream End Handling
+  - End stream automatically if credits run out
+  - Show notification explaining stream ended due to insufficient credits
+  - When user manually ends stream, calculate final credit usage
+  - Update profile credits balance
+  - Record credit usage transaction
+  - Update stream session with end time, duration, and cost
+
+### Technical Implementation Notes
+- Stripe Integration
+  - Set up Stripe account and obtain API keys
+  - Configure webhook endpoint for payment confirmation
+  - Implement success and cancel URLs for checkout flow
+  - Track payment IDs in the transactions table
+- Real-time Credit Tracking
+  - Implement server-side timer to track streaming duration
+  - Calculate remaining minutes: Math.floor(userCredits / 0.2) (12 credits per hour = 0.2 credits per minute)
+  - Update UI in real-time to show remaining time
+  - Apply warning styles when time < 10 minutes
+- Credit Calculation Precision
+  - Track streaming time to the minute
+  - Round up to the next full minute (e.g., 2 seconds → 1 minute, 64 seconds → 2 minutes)
+  - Deduct 0.2 credits per minute of streaming (12 credits ÷ 60 minutes = 0.2 credits/minute)
+- Session Data Collection
+  - Track max concurrent viewers during stream
+  - Calculate final duration and cost when stream ends
+  - Store all session data for analytics purposes
+
+### Questions for Implementation
+- Will we need Stripe webhook configuration for production environment?
+- Should we implement a minimum credit purchase amount?
+- Do we need any admin tools to manage user credits manually?
+
+### Acceptance Criteria
+- [ ] New users start with 12.0 credits upon account creation
+- [ ] Users can purchase credits via Stripe
+- [ ] Users cannot start streaming with less than 1 credit
+- [ ] Credits are consumed during streaming (0.2 credits per minute)
+- [ ] Stream ends automatically when credits run out
+- [ ] Remaining stream time is displayed with warning when < 10 minutes
+- [ ] Credit transactions are properly recorded with decimal precision
+- [ ] Stream sessions are tracked with relevant metadata
+
+### Required for Testing
+- Stripe test API keys
+- Test user accounts with various credit balances
+- Test environments for simulating long streams
