@@ -79,7 +79,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-0 shadow-lg">
+      <Card className="overflow-hidden border-0 shadow-lg p-0">
         <CardContent className="p-0">
           <div className="bg-gradient-to-r from-indigo-100 to-blue-100 px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Personal Information</h2>
@@ -187,7 +187,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
         </CardContent>
       </Card>
       
-      <Card className="overflow-hidden border-0 shadow-lg">
+      <Card className="overflow-hidden border-0 shadow-lg p-0">
         <CardContent className="p-0">
           <div className="bg-gradient-to-r from-red-50 to-orange-50 px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Account Actions</h2>

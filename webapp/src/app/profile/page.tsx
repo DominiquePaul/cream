@@ -5,9 +5,7 @@ import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowUpRight, CreditCard, History, User, BarChart, Clock, Users, Flame } from 'lucide-react';
-import Link from 'next/link';
-import { formatDate } from '@/utils/formatters';
+import { CreditCard, History, User, BarChart, Users, Flame } from 'lucide-react';
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -55,17 +53,12 @@ export default async function ProfilePage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
-      <div className="flex flex-col md:flex-row gap-6 mb-8 items-start">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold">Your Profile</h1>
-          <p className="text-muted-foreground mt-1">Manage your account and view stream history</p>
-        </div>
-        <Link href="/stream/new" className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors">
-          Start New Stream <ArrowUpRight className="ml-2 h-4 w-4" />
-        </Link>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold">Your Profile</h1>
+        <p className="text-muted-foreground mt-1">Manage your account and view stream history</p>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center">
@@ -81,31 +74,21 @@ export default async function ProfilePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center">
-              <History className="h-4 w-4 mr-2" /> Streams
+              <History className="h-4 w-4 mr-2" /> Stream Activity
             </CardTitle>
-            <CardDescription>Your streaming activity</CardDescription>
+            <CardDescription>Your streaming history</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{totalStreams}</div>
-            <div className="text-sm text-muted-foreground">Total streams created</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center">
-              <User className="h-4 w-4 mr-2" /> Account
-            </CardTitle>
-            <CardDescription>Your account details</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm">
-              <div className="font-medium">{profile?.full_name || user.email}</div>
-              <div className="text-muted-foreground">{profile?.username ? `@${profile.username}` : ''}</div>
-              <div className="text-muted-foreground">
-                Member since {profile?.created_at 
-                  ? formatDate(profile.created_at) 
-                  : formatDate(new Date().toISOString())}
+            <div className="flex flex-col gap-2">
+              <div>
+                <div className="text-3xl font-bold">{totalStreams}</div>
+                <div className="text-sm text-muted-foreground">Total streams created</div>
+              </div>
+              <div className="border-t pt-2 mt-1">
+                <div className="text-2xl font-bold">
+                  {Math.floor(totalStreamMinutes / 60)}h {totalStreamMinutes % 60}m
+                </div>
+                <div className="text-sm text-muted-foreground">Total time streamed</div>
               </div>
             </div>
           </CardContent>
@@ -119,20 +102,6 @@ export default async function ProfilePage() {
             Stream Analytics
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Time</p>
-                    <div className="text-2xl font-bold">
-                      {Math.floor(totalStreamMinutes / 60)}h {totalStreamMinutes % 60}m
-                    </div>
-                  </div>
-                  <Clock className="h-8 w-8 text-muted-foreground/50" />
-                </div>
-              </CardContent>
-            </Card>
-            
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
