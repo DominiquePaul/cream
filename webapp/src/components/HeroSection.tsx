@@ -19,8 +19,8 @@ export default function HeroSection() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div>
             <h1 className="text-5xl sm:text-6xl font-bold tracking-tight text-gray-900 mb-6">
-              <span className="block">Transform Your</span>
-              <span className="block text-blue-600">Livestream Into Art</span>
+              <span className="block">Create your own</span>
+              <span className="block text-blue-600">interactive art livestream</span>
             </h1>
             <p className="text-xl text-gray-600 max-w-lg mb-8">
               Share magical moments with friends by turning your webcam feed into stunning visuals powered by AI — in real-time.
