@@ -68,7 +68,7 @@ export default async function ProfilePage() {
             </div>
             <div>
               <div className="text-sm text-muted-foreground">Available Credits</div>
-              <div className="text-2xl font-bold">{profile?.credits || 0}</div>
+              <div className="text-2xl font-bold">{Number(profile?.credits || 0).toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -166,7 +166,7 @@ export default async function ProfilePage() {
             <div className="bg-background rounded-lg p-4 shadow-sm">
               <div className="text-muted-foreground text-sm mb-1">Credits Used</div>
               <div className="text-3xl font-bold">
-                {streamStats?.reduce((sum, session) => sum + (session.cost_credits || 0), 0) || 0}
+                {Number(streamStats?.reduce((sum, session) => sum + (session.cost_credits || 0), 0) || 0).toFixed(2)}
               </div>
               <div className="mt-3 text-xs text-muted-foreground">
                 Total for all streams
