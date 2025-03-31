@@ -490,6 +490,7 @@ export default function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const wsReadyStateRef = useRef<number>(WebSocket.CLOSED);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Initializing camera...");
   const frameCounterRef = useRef(0);
@@ -524,6 +525,8 @@ export default function StreamPage() {
   const [isModalStarting, setIsModalStarting] = useState(false);
   const [startupProgress, setStartupProgress] = useState(0);
   const startupTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const isRefreshingRef = useRef(false); // Add a ref to track refreshUser calls
   
   // Add a log when isModalStarting changes to debug visibility issues
   useEffect(() => {
@@ -823,13 +826,32 @@ export default function StreamPage() {
   // Modify the useEffect that tracks streaming duration
   useEffect(() => {
     // Only start duration tracking when both conditions are met AND WebSocket is connected
-    if (isStreaming && streamStartTime.current !== null && wsRef.current?.readyState === WebSocket.OPEN) {
+    if (isStreaming && streamStartTime.current !== null && wsReadyStateRef.current === WebSocket.OPEN) {
       console.log("Starting duration timer with start time:", new Date(streamStartTime.current).toISOString());
+      console.log(`Stream timer created at: ${Date.now()}, stream started at: ${streamStartTime.current}, diff: ${Date.now() - streamStartTime.current}ms`);
+      
+      // Ensure we clean up any existing interval first
+      if (durationTimerRef.current) {
+        console.log("Clearing existing duration timer before creating a new one");
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
       
       let lastDeductedMinute = 0; // Track when we last deducted credits
+      let lastDeductionTime = 0; // Track the timestamp of the last deduction
+      
+      // Create a unique ID for this timer instance to prevent stale timers from deducting
+      const timerInstanceId = Date.now();
+      console.log(`Created new timer instance ID: ${timerInstanceId}`);
       
       // Set up a timer to update duration every second
       durationTimerRef.current = setInterval(async () => {
+        // Skip if we're not streaming anymore
+        if (!isStreaming || !streamStartTime.current) {
+          console.log(`Timer ${timerInstanceId} - Stream no longer active, skipping updates`);
+          return;
+        }
+        
         const now = Date.now();
         const durationMs = now - streamStartTime.current!;
         
@@ -837,19 +859,31 @@ export default function StreamPage() {
         const durationMinutes = durationMs / (1000 * 60);
         
         // Log for debugging
-        console.log(`Updating duration: durationMs=${durationMs}ms, durationMinutes=${durationMinutes}min`);
+        console.log(`Timer ${timerInstanceId} - Updating duration: durationMs=${durationMs}ms, durationMinutes=${durationMinutes}min`);
         
         // Update state with the more precise value
         setStreamingDuration(durationMinutes);
         
         // Real-time credit deductions - every whole minute
         const currentWholeMinute = Math.floor(durationMinutes);
-        if (currentWholeMinute > lastDeductedMinute && sessionId.current) {
+        const minimumDeductionInterval = 55 * 1000; // 55 seconds minimum between deductions
+        
+        // Only deduct if we've advanced to a new minute AND enough time has passed since last deduction
+        // Also check we're not in the middle of a refresh
+        if (currentWholeMinute > lastDeductedMinute && 
+            sessionId.current && 
+            (now - lastDeductionTime > minimumDeductionInterval) &&
+            !isRefreshingRef.current) {
           // Calculate credits to deduct for this minute
           const creditsToDeduct = 0.2; // 0.2 credits per minute
           lastDeductedMinute = currentWholeMinute;
+          lastDeductionTime = now;
           
-          console.log(`Processing credit deduction for minute ${currentWholeMinute}: ${creditsToDeduct} credits`);
+          console.log(`-----------------------------------`);
+          console.log(`Timer ${timerInstanceId} - DEDUCTING CREDITS - MINUTE ${currentWholeMinute}`);
+          console.log(`Timer ${timerInstanceId} - Processing credit deduction: ${creditsToDeduct} credits`);
+          console.log(`Timer ${timerInstanceId} - Timing check: durationMs=${durationMs}, durationMinutes=${durationMinutes.toFixed(4)}`);
+          console.log(`Timer ${timerInstanceId} - Last deducted minute: ${lastDeductedMinute}, time since last deduction: ${(now - lastDeductionTime)/1000}s`);
           
           try {
             // First, get current credits to calculate new value
@@ -860,7 +894,7 @@ export default function StreamPage() {
               .single();
             
             if (profileError) {
-              console.error("Error getting current credits:", profileError);
+              console.error(`Timer ${timerInstanceId} - Error getting current credits:`, profileError);
               return;
             }
             
@@ -877,9 +911,9 @@ export default function StreamPage() {
               .eq('id', user?.id);
             
             if (updateError) {
-              console.error("Error updating credits:", updateError);
+              console.error(`Timer ${timerInstanceId} - Error updating credits:`, updateError);
             } else {
-              console.log(`Successfully updated credits from ${currentCredits} to ${newCredits}`);
+              console.log(`Timer ${timerInstanceId} - Successfully updated credits from ${currentCredits} to ${newCredits}`);
               
               // Record the credit usage transaction
               const { error: transactionError } = await supabase
@@ -892,16 +926,19 @@ export default function StreamPage() {
                 });
               
               if (transactionError) {
-                console.error("Error recording credit transaction:", transactionError);
+                console.error(`Timer ${timerInstanceId} - Error recording credit transaction:`, transactionError);
               }
               
               // Refresh the user to update the displayed credit balance
+              isRefreshingRef.current = true;
               await refreshUser();
-              console.log("Called refreshUser() - Current user state:", user);
-              console.log(`Successfully deducted ${creditsToDeduct} credits for minute ${currentWholeMinute}`);
+              console.log(`Timer ${timerInstanceId} - Called refreshUser() - Current user state:`, user);
+              console.log(`Timer ${timerInstanceId} - Successfully deducted ${creditsToDeduct} credits for minute ${currentWholeMinute}`);
+              isRefreshingRef.current = false;
             }
           } catch (err) {
-            console.error("Error processing minute credit deduction:", err);
+            console.error(`Timer ${timerInstanceId} - Error processing minute credit deduction:`, err);
+            isRefreshingRef.current = false;
           }
         }
       }, 1000);
@@ -919,23 +956,23 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, user?.id, refreshUser, user, wsRef.current?.readyState]);
+  }, [isStreaming, user?.id, refreshUser]); // Remove wsRef.current?.readyState
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(async () => {
     // Create a stream session in the database
     const startStreamSession = async () => {
       try {
-        // Set streamStartTime first before database operations
-        streamStartTime.current = Date.now();
-        console.log("Setting stream start time:", new Date(streamStartTime.current).toISOString());
+        // We no longer set streamStartTime here to prevent double-setting
+        // streamStartTime is already set in the ws.onopen handler
+        // This ensures credits are deducted at the correct rate (once per minute)
         
         // Create a new stream session
         const { data, error } = await supabase
           .from('stream_sessions')
           .insert({
             profile_id: user?.id,
-            start_time: new Date(streamStartTime.current).toISOString(), // Use the same timestamp
+            start_time: new Date(streamStartTime.current!).toISOString(), // Add non-null assertion
             status: 'active'
           })
           .select()
@@ -1008,6 +1045,9 @@ export default function StreamPage() {
         setStatus("Connected to server");
         clearInterval(stateInterval);
         
+        // Update WebSocket readyState ref
+        wsReadyStateRef.current = WebSocket.OPEN;
+        
         // Send a ping to test bi-directional communication
         try {
           ws.send(JSON.stringify({ type: 'ping' }));
@@ -1023,7 +1063,8 @@ export default function StreamPage() {
         // NOW set the stream start time - this is when billing should begin
         // Only at this point do we know the container is ready
         streamStartTime.current = Date.now();
-        console.log("Setting stream start time after WebSocket connected:", new Date(streamStartTime.current).toISOString());
+        const streamStartTimeFormatted = new Date(streamStartTime.current).toISOString();
+        console.log(`Setting stream start time after WebSocket connected: ${streamStartTimeFormatted} - milliseconds: ${streamStartTime.current}`);
         
         // Stream is created automatically by connecting to the broadcaster path
         setIsStreaming(true);
@@ -1063,6 +1104,9 @@ export default function StreamPage() {
       // Improve error handling for connection issues
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
+        // Update WebSocket readyState ref
+        wsReadyStateRef.current = ws.readyState;
+        
         // Don't immediately show errors during startup
         if (!isModalStarting) {
           setError("Connection error. Please try again.");
@@ -1084,6 +1128,9 @@ export default function StreamPage() {
         console.log(`WebSocket connection closed with code ${event.code} and reason: ${event.reason || 'No reason provided'}`);
         setStatus(`Disconnected (code: ${event.code})`);
         clearInterval(stateInterval);
+        
+        // Update WebSocket readyState ref
+        wsReadyStateRef.current = WebSocket.CLOSED;
         
         // Only stop streaming if we were actively streaming
         if (isStreamingRef.current) {
