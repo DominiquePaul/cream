@@ -344,13 +344,19 @@ export default function StreamPage() {
 
   // Track streaming duration and credit usage
   useEffect(() => {
-    if (isStreaming && streamStartTime.current) {
+    // Only start duration tracking when both conditions are met
+    if (isStreaming && streamStartTime.current !== null) {
+      console.log("Starting duration timer with start time:", new Date(streamStartTime.current).toISOString());
+      
       // Set up a timer to update duration every second
       durationTimerRef.current = setInterval(() => {
         const now = Date.now();
         const durationMs = now - streamStartTime.current!;
-        const durationMinutes = Math.ceil(durationMs / (1000 * 60)); // Round up to nearest minute
         
+        // Calculate duration in minutes (keep decimals for more accurate display)
+        const durationMinutes = durationMs / (1000 * 60);
+        
+        // Update state with the more precise value
         setStreamingDuration(durationMinutes);
         
         // Calculate credit usage (0.2 credits per minute)
@@ -372,19 +378,23 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming]);
+  }, [isStreaming, streamStartTime.current]); // Add streamStartTime.current as a dependency
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
     // Create a stream session in the database
     const startStreamSession = async () => {
       try {
+        // Set streamStartTime first before database operations
+        streamStartTime.current = Date.now();
+        console.log("Setting stream start time:", new Date(streamStartTime.current).toISOString());
+        
         // Create a new stream session
         const { data, error } = await supabase
           .from('stream_sessions')
           .insert({
             profile_id: user?.id,
-            start_time: new Date().toISOString(),
+            start_time: new Date(streamStartTime.current).toISOString(), // Use the same timestamp
             status: 'active'
           })
           .select()
@@ -398,9 +408,6 @@ export default function StreamPage() {
         // Save the session ID for later use
         sessionId.current = data.id;
         console.log("Created stream session with ID:", data.id);
-        
-        // Track when we started streaming (for credit calculation)
-        streamStartTime.current = Date.now();
       } catch (err) {
         console.error("Error creating stream session:", err);
       }
@@ -914,7 +921,7 @@ export default function StreamPage() {
                     <div className="flex items-center">
                       <Hourglass className="h-4 w-4 text-indigo-500 mr-2" />
                       <span className="text-sm font-medium">
-                        Stream duration: {Math.floor(streamingDuration / 60)}h {streamingDuration % 60}m
+                        Stream duration: {Math.floor(streamingDuration / 60)}h {Math.floor(streamingDuration % 60)}m {Math.floor((streamingDuration * 60) % 60)}s
                       </span>
                     </div>
                     <div className="text-sm">
