@@ -1,6 +1,7 @@
 "use client";
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -20,12 +21,7 @@ export default function Navbar() {
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const handleSignOut = async () => {
-    await signOut();
-    window.location.href = '/';
-  };
-
+  
   // Get user initials for avatar
   const getUserInitials = () => {
     if (!user?.full_name) return '?';
@@ -46,14 +42,19 @@ export default function Navbar() {
     <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-30">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center">
-          <Link href="/" className="font-medium text-xl">
-            DreamStream
+          <Link href="/" className="flex items-center gap-2">
+            <Image
+              src="/logo.webp"
+              alt="Cream Logo"
+              width={120}
+              height={40}
+              priority
+              className="h-8 w-auto"
+            />
+            <span className="text-xl font-medium text-gray-900 hidden sm:inline-block">DreamStream</span>
           </Link>
           
           <nav className="hidden md:flex ml-10 space-x-8">
-            <Link href="/" className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
-              Home
-            </Link>
             <Link href="/streams" className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
               Public Streams
             </Link>
@@ -75,7 +76,7 @@ export default function Navbar() {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-300 focus:outline-none">
+                <button className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-200 focus:outline-none">
                   {getUserInitials()}
                 </button>
               </DropdownMenuTrigger>
@@ -107,7 +108,7 @@ export default function Navbar() {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={handleSignOut}
+                  onClick={signOut}
                   className="text-red-600 cursor-pointer"
                 >
                   Sign out

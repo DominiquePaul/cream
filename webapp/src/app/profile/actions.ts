@@ -8,6 +8,7 @@ interface ProfileUpdate {
   full_name?: string;
   username?: string;
   referral_source?: string;
+  updated_at: string;
 }
 
 export async function updateProfile(formData: FormData) {
@@ -56,16 +57,19 @@ export async function updateProfile(formData: FormData) {
       id: user.id,
       full_name,
       username,
-      referral_source,
+      updated_at: new Date().toISOString(),
     };
+    
+    // Add referral_source only if provided from form data
+    // (This should come from existing profile data, not user input on profile page)
+    if (referral_source) {
+      updates.referral_source = referral_source;
+    }
     
     // Update the profile
     const { error: updateError } = await supabase
       .from('profiles')
-      .upsert({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(updates)
       .eq('id', user.id);
       
     if (updateError) {

@@ -5,7 +5,8 @@ import { useAuth } from '@/context/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { CheckCircle2, AlertCircle, Mail, AtSign, LogOut, UserIcon } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import { updateProfile } from '@/app/profile/actions';
 
@@ -34,8 +35,6 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
   // Initialize state from props
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [username, setUsername] = useState(profile?.username || '');
-  const [referralSource, setReferralSource] = useState(profile?.referral_source || '');
-  const [isAdmin] = useState(profile?.is_admin || false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -47,6 +46,11 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
     
     // Get the form data
     const formData = new FormData(e.currentTarget);
+    
+    // Preserve the referral_source from the profile if it exists
+    if (profile?.referral_source) {
+      formData.set('referral_source', profile.referral_source);
+    }
     
     // Use a transition to avoid blocking the UI
     startTransition(async () => {
@@ -74,93 +78,143 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader>
-        <CardTitle>Your Profile {isAdmin && <span className="text-sm text-purple-600 ml-2">(Admin)</span>}</CardTitle>
-        <CardDescription>Update your account information</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={user?.email || ''}
-              disabled
-              className="bg-gray-50"
-            />
-            <p className="text-xs text-gray-500">Email cannot be changed</p>
+    <div className="space-y-6">
+      <Card className="overflow-hidden border-0 shadow-sm">
+        <CardContent className="p-0">
+          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Account Information</h2>
+            <p className="text-sm text-gray-500 mt-1">Update your personal details</p>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="full_name">Full Name</Label>
-            <Input
-              id="full_name"
-              name="full_name"
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your full name"
-            />
+          <div className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label 
+                    htmlFor="email" 
+                    className="text-sm font-medium text-gray-700 flex items-center gap-2"
+                  >
+                    <Mail className="h-4 w-4 text-gray-400" />
+                    Email Address
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="email"
+                      type="email"
+                      value={user?.email || ''}
+                      disabled
+                      className="pl-3 pr-3 py-2 bg-gray-50 border-gray-200 text-gray-500 w-full"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Your email address cannot be changed</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label 
+                    htmlFor="full_name" 
+                    className="text-sm font-medium text-gray-700 flex items-center gap-2"
+                  >
+                    <UserIcon className="h-4 w-4 text-gray-400" />
+                    Full Name
+                  </Label>
+                  <Input
+                    id="full_name"
+                    name="full_name"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Your full name"
+                    className="pl-3 pr-3 py-2 border-gray-200 w-full"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label 
+                    htmlFor="username" 
+                    className="text-sm font-medium text-gray-700 flex items-center gap-2"
+                  >
+                    <AtSign className="h-4 w-4 text-gray-400" />
+                    Username
+                  </Label>
+                  <Input
+                    id="username"
+                    name="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Choose a username"
+                    className="pl-3 pr-3 py-2 border-gray-200 w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Used for your stream URL. Only letters, numbers, and underscores.
+                  </p>
+                </div>
+              </div>
+              
+              {error && (
+                <div className="rounded-md bg-red-50 p-4 flex items-start">
+                  <div className="flex-shrink-0">
+                    <AlertCircle className="h-5 w-5 text-red-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                </div>
+              )}
+              
+              {message && (
+                <div className="rounded-md bg-green-50 p-4 flex items-start">
+                  <div className="flex-shrink-0">
+                    <CheckCircle2 className="h-5 w-5 text-green-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-green-700">{message}</p>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex justify-end">
+                <Button 
+                  type="submit" 
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+                  disabled={isPending}
+                >
+                  {isPending ? 'Saving Changes...' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card className="overflow-hidden border-0 shadow-sm">
+        <CardContent className="p-0">
+          <div className="bg-red-50 px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Account Actions</h2>
+            <p className="text-sm text-gray-500 mt-1">Manage your account</p>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
-              name="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Choose a username"
-            />
-            <p className="text-xs text-gray-500">
-              Used for your stream URL. Only letters, numbers, and underscores.
-            </p>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="referral_source">How did you hear about us?</Label>
-            <Input
-              id="referral_source"
-              name="referral_source"
-              type="text"
-              value={referralSource}
-              onChange={(e) => setReferralSource(e.target.value)}
-              placeholder="How did you hear about us?"
-              disabled={!!profile?.referral_source}
-              className={profile?.referral_source ? "bg-gray-50" : ""}
-            />
-          </div>
-          
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
-              {error}
+          <div className="p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h3 className="text-base font-medium text-gray-900">Sign out of your account</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  This will log you out of the current session
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={handleSignOut} 
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 flex items-center gap-2"
+                disabled={signingOut}
+              >
+                <LogOut className="h-4 w-4" />
+                {signingOut ? 'Signing Out...' : 'Sign Out'}
+              </Button>
             </div>
-          )}
-          
-          {message && (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-md text-green-600 text-sm">
-              {message}
-            </div>
-          )}
-          
-          <Button type="submit" className="w-full" disabled={isPending}>
-            {isPending ? 'Updating...' : 'Update Profile'}
-          </Button>
-        </form>
-      </CardContent>
-      <CardFooter className="flex justify-center border-t pt-4">
-        <Button 
-          variant="outline" 
-          onClick={handleSignOut} 
-          className="text-red-600"
-          disabled={signingOut}
-        >
-          {signingOut ? 'Signing Out...' : 'Sign Out'}
-        </Button>
-      </CardFooter>
-    </Card>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 } 
