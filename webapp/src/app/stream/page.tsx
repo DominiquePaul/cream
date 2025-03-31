@@ -374,12 +374,10 @@ const CreditsTimer = ({ credits }: { credits: number }) => {
 
 // Component to handle the credits purchase dialog
 const CreditPurchaseButton = () => {
-  const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState('small');
   
   const handleBuyCredits = async () => {
-    setLoading(true);
     try {
       // Create checkout session via API
       const response = await fetch('/api/checkout/credits', {
@@ -409,7 +407,6 @@ const CreditPurchaseButton = () => {
     } catch (error) {
       console.error('Error starting checkout:', error);
       alert('Failed to start checkout process. Please try again.');
-      setLoading(false);
     }
   };
   
@@ -420,10 +417,9 @@ const CreditPurchaseButton = () => {
           variant="outline"
           size="sm"
           onClick={() => setDialogOpen(true)}
-          disabled={loading}
           className="ml-2"
         >
-          {loading ? 'Processing...' : 'Buy Credits'}
+          Buy Credits
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -474,10 +470,9 @@ const CreditPurchaseButton = () => {
             </Button>
             <Button
               onClick={handleBuyCredits}
-              disabled={loading}
               className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
             >
-              {loading ? 'Processing...' : 'Checkout'}
+              Checkout
             </Button>
           </div>
         </div>

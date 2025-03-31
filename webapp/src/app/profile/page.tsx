@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CreditCard, History, User, BarChart, Users, Flame, Clock, Video, VideoOff } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
-import ProfileClient from './client';
+import ProfileClient, { CreditPurchaseButton } from './client';
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -72,6 +72,9 @@ export default async function ProfilePage() {
               <div className="text-sm text-muted-foreground">Available Credits</div>
               <div className="text-2xl font-bold">{Number(profile?.credits || 0).toFixed(2)}</div>
             </div>
+          </div>
+          <div className="ml-3">
+            <CreditPurchaseButton />
           </div>
         </div>
       </div>
