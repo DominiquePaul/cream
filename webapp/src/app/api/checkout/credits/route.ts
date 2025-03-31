@@ -1,111 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import Stripe from 'stripe';
+import { initStripe, sanitizeMetadata, handleStripeOperation } from '@/utils/stripe';
 
-// Initialize Stripe client
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-02-24.acacia', // Latest supported API version
-});
-
-// Products and prices
-const CREDIT_PRICES = {
-  "12": process.env.STRIPE_PRICE_12_CREDITS || '',   // 12 credits for €12
-  "30": process.env.STRIPE_PRICE_30_CREDITS || '',   // 30 credits for €30
-  "60": process.env.STRIPE_PRICE_60_CREDITS || '',   // 60 credits for €60
-  "120": process.env.STRIPE_PRICE_120_CREDITS || '', // 120 credits for €120
+// Credit package options
+const CREDIT_PACKAGES = {
+  small: { credits: 12, priceInCents: 1200 },
+  medium: { credits: 30, priceInCents: 3000 },
+  large: { credits: 60, priceInCents: 6000 },
+  xlarge: { credits: 120, priceInCents: 12000 },
 };
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // Get query parameters
-    const searchParams = request.nextUrl.searchParams;
-    const creditAmount = searchParams.get('amount') || '12'; // Default to 12 credits
-    const customAmount = searchParams.get('custom');
-    
-    // Validate the amount
-    if (!customAmount && !CREDIT_PRICES[creditAmount as keyof typeof CREDIT_PRICES]) {
-      return NextResponse.json({ error: 'Invalid credit amount' }, { status: 400 });
+    // Parse request body
+    const requestBody = await request.json();
+    const { packageSize, successUrl, cancelUrl } = requestBody;
+
+    // Validate package size
+    const creditPackage = CREDIT_PACKAGES[packageSize as keyof typeof CREDIT_PACKAGES];
+    if (!creditPackage) {
+      return NextResponse.json(
+        { error: 'Invalid package size. Choose from: small, medium, large, xlarge' },
+        { status: 400 }
+      );
     }
-    
-    // Get the authenticated user
+
+    // Get user information from Supabase
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
-    
-    // Get user profile for metadata
-    const { data: profile } = await supabase
+
+    // Get user's profile information
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('username, email')
+      .select('id, email, username')
       .eq('id', user.id)
       .single();
+
+    if (profileError || !profile) {
+      console.error('Error fetching user profile:', profileError);
+      return NextResponse.json(
+        { error: 'Error retrieving user profile information' },
+        { status: 500 }
+      );
+    }
+
+    // Initialize Stripe
+    const stripe = initStripe();
     
-    // Define metadata - make sure it contains only string values
-    const metadata: Record<string, string> = {
-      user_id: user.id,
-      credits: customAmount || creditAmount,
-    };
-    
-    // Only add these if they're not undefined
-    if (user.email) metadata.user_email = user.email;
-    if (profile?.username) metadata.username = profile.username;
-    
-    let session;
-    
-    if (customAmount) {
-      // Handle custom amount
-      const numericAmount = parseInt(customAmount, 10);
-      
-      // Validate custom amount (minimum 5 credits)
-      if (isNaN(numericAmount) || numericAmount < 5) {
-        return NextResponse.json({ error: 'Custom amount must be at least 5 credits' }, { status: 400 });
-      }
-      
-      // Create a custom checkout session with the line item directly
-      session = await stripe.checkout.sessions.create({
+    console.log('Creating Stripe checkout session for user:', profile.id);
+
+    // Create a Stripe checkout session
+    const { success, data: session, error } = await handleStripeOperation(async () => {
+      return await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
           {
             price_data: {
               currency: 'eur',
               product_data: {
-                name: `${numericAmount} DreamStream Credits`,
-                description: `${numericAmount} credits for streaming on DreamStream`,
+                name: `${creditPackage.credits} Credits`,
+                description: `Package of ${creditPackage.credits} DreamStream credits`,
               },
-              unit_amount: numericAmount * 100, // In cents (1 credit = €1 = 100 cents)
+              unit_amount: creditPackage.priceInCents,
             },
             quantity: 1,
           },
         ],
         mode: 'payment',
-        metadata: metadata,
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=success`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=cancelled`,
+        success_url: successUrl || `${request.nextUrl.origin}/profile?checkout=success`,
+        cancel_url: cancelUrl || `${request.nextUrl.origin}/profile?checkout=canceled`,
+        customer_email: user.email || profile.email,
+        metadata: sanitizeMetadata({
+          userId: profile.id,
+          credits: creditPackage.credits,
+          packageSize: packageSize,
+          username: profile.username || 'user',
+        }),
       });
-    } else {
-      // Use predefined product/price
-      session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price: CREDIT_PRICES[creditAmount as keyof typeof CREDIT_PRICES],
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        metadata: metadata,
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=success`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=cancelled`,
-      });
+    }, 'Failed to create checkout session');
+
+    if (!success || !session) {
+      return NextResponse.json({ error: error }, { status: 500 });
     }
-    
-    // Redirect to Stripe checkout
-    return NextResponse.redirect(session.url as string, { status: 303 });
-    
+
+    console.log('Checkout session created successfully:', session.id);
+    return NextResponse.json({ checkoutUrl: session.url });
   } catch (error) {
-    console.error('Stripe checkout error:', error);
-    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
+    console.error('Unexpected error in checkout endpoint:', error);
+    return NextResponse.json(
+      { error: 'An unexpected error occurred processing your request' },
+      { status: 500 }
+    );
   }
 } 

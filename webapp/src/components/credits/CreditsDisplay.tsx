@@ -6,16 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Coins, AlertCircle, Clock, Sparkles } from 'lucide-react';
 import { formatNumber } from '@/utils/formatters';
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-// Predefined credit packages
+// Updated credit packages to match backend
 const CREDIT_PACKAGES = [
-  { amount: 12, label: '12 credits', isPopular: true, price: '€12' },
-  { amount: 30, label: '30 credits', isPopular: false, price: '€30' },
-  { amount: 60, label: '60 credits', isPopular: false, price: '€60' },
-  { amount: 120, label: '120 credits', isPopular: false, price: '€120' },
+  { id: 'small', amount: 12, label: '12 credits', isPopular: true, price: '€12.00' },
+  { id: 'medium', amount: 30, label: '30 credits', isPopular: false, price: '€30.00' },
+  { id: 'large', amount: 60, label: '60 credits', isPopular: false, price: '€60.00' },
+  { id: 'xlarge', amount: 120, label: '120 credits', isPopular: false, price: '€120.00' },
 ];
 
 // Component to display credits and purchase button
@@ -23,9 +22,7 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState('12');
-  const [customAmount, setCustomAmount] = useState('');
-  const [useCustomAmount, setUseCustomAmount] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState('small');
   
   // Calculate remaining stream time in minutes
   const creditsPerMinute = 0.2; // 12 credits per hour = 0.2 credits per minute
@@ -47,27 +44,34 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
   const handleBuyCredits = async () => {
     setLoading(true);
     try {
-      // Determine which amount to use
-      let checkoutUrl = '/api/checkout/credits';
+      // Create checkout session via API
+      const response = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          packageSize: selectedPackage,
+          successUrl: `${window.location.origin}/profile?checkout=success`,
+          cancelUrl: `${window.location.origin}/profile?checkout=canceled`,
+        }),
+      });
       
-      if (useCustomAmount && customAmount) {
-        // Use custom amount
-        const numAmount = parseInt(customAmount, 10);
-        if (isNaN(numAmount) || numAmount < 5) {
-          alert('Please enter a valid amount (minimum 5 credits)');
-          setLoading(false);
-          return;
-        }
-        checkoutUrl += `?custom=${numAmount}`;
-      } else {
-        // Use predefined package
-        checkoutUrl += `?amount=${selectedPackage}`;
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create checkout session');
       }
       
-      // Redirect to checkout
-      window.location.href = checkoutUrl;
+      // Redirect to Stripe checkout
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('No checkout URL provided');
+      }
     } catch (error) {
       console.error('Error starting checkout:', error);
+      alert('Failed to start checkout process. Please try again.');
       setLoading(false);
     }
   };
@@ -142,22 +146,15 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
             <h3 className="text-sm font-medium mb-3">Purchase Credits</h3>
             
             <RadioGroup 
-              defaultValue="12"
-              value={useCustomAmount ? 'custom' : selectedPackage}
-              onValueChange={(value) => {
-                if (value === 'custom') {
-                  setUseCustomAmount(true);
-                } else {
-                  setUseCustomAmount(false);
-                  setSelectedPackage(value);
-                }
-              }}
+              defaultValue="small"
+              value={selectedPackage}
+              onValueChange={(value) => setSelectedPackage(value)}
               className="space-y-2"
             >
               {CREDIT_PACKAGES.map((pkg) => (
-                <div key={pkg.amount} className="flex items-center space-x-2">
-                  <RadioGroupItem value={pkg.amount.toString()} id={`credits-${pkg.amount}`} />
-                  <Label htmlFor={`credits-${pkg.amount}`} className="flex items-center justify-between flex-1 cursor-pointer">
+                <div key={pkg.id} className="flex items-center space-x-2">
+                  <RadioGroupItem value={pkg.id} id={`credits-${pkg.id}`} />
+                  <Label htmlFor={`credits-${pkg.id}`} className="flex items-center justify-between flex-1 cursor-pointer">
                     <span className="flex items-center">
                       {pkg.label}
                       {pkg.isPopular && (
@@ -171,23 +168,6 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
                   </Label>
                 </div>
               ))}
-              
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="custom" id="credits-custom" />
-                <Label htmlFor="credits-custom" className="flex items-center w-full cursor-pointer">
-                  <span className="mr-3">Custom amount</span>
-                  <Input
-                    type="number"
-                    min="5"
-                    placeholder="Enter amount"
-                    value={customAmount}
-                    onChange={(e) => setCustomAmount(e.target.value)}
-                    onClick={() => setUseCustomAmount(true)}
-                    className="w-20"
-                  />
-                  <span className="ml-2">€{formatNumber(parseInt(customAmount || '0'))}</span>
-                </Label>
-              </div>
             </RadioGroup>
             
             <div className="flex space-x-2 mt-4">
@@ -200,7 +180,7 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
               </Button>
               <Button
                 onClick={handleBuyCredits}
-                disabled={loading || (useCustomAmount && (!customAmount || parseInt(customAmount) < 5))}
+                disabled={loading}
                 className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700"
               >
                 {loading ? 'Processing...' : 'Checkout'}

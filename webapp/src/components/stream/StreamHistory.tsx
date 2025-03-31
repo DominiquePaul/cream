@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from '@/lib/supabase';
 import { formatDate, formatDuration } from '@/utils/formatters';
-import { Clock, User } from 'lucide-react';
+import { Clock, User, Calendar, ChevronRight, PlayCircle, ArrowUpRight } from 'lucide-react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface StreamSession {
   id: string;
@@ -22,6 +24,7 @@ export default function StreamHistory() {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<StreamSession[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
     const fetchStreamSessions = async () => {
@@ -35,7 +38,7 @@ export default function StreamHistory() {
           .select('*')
           .eq('profile_id', user.id)
           .order('start_time', { ascending: false })
-          .limit(5);
+          .limit(showMore ? 10 : 5);
         
         if (error) throw error;
         
@@ -49,54 +52,83 @@ export default function StreamHistory() {
     };
     
     fetchStreamSessions();
-  }, [user]);
+  }, [user, showMore]);
+
+  // Check if there are likely more sessions
+  const hasMoreSessions = sessions.length === (showMore ? 10 : 5);
 
   return (
-    <Card className="shadow-md">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg">Recent Streams</CardTitle>
-        <CardDescription>Your recent streaming activity</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-4">
-            <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-indigo-500 mb-2"></div>
-            <p className="text-sm text-gray-500">Loading stream history...</p>
+    <div className="space-y-4">
+      {loading ? (
+        // Skeleton loading state
+        Array(3).fill(0).map((_, i) => (
+          <div key={i} className="border rounded-lg p-4 space-y-3">
+            <div className="flex justify-between">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+            <div className="flex space-x-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-16" />
+            </div>
           </div>
-        ) : error ? (
-          <div className="text-center py-4 text-red-500">{error}</div>
-        ) : sessions.length === 0 ? (
-          <div className="text-center py-4 text-gray-500">
-            <p>You haven&apos;t streamed yet.</p>
-            <p className="text-sm mt-1">Start a stream to see your history here!</p>
-          </div>
-        ) : (
+        ))
+      ) : error ? (
+        <div className="text-center py-6 bg-red-50 rounded-lg border border-red-200">
+          <p className="text-red-600">{error}</p>
+          <Button 
+            variant="outline"
+            className="mt-2" 
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="text-center py-8 border-2 border-dashed border-muted rounded-lg bg-muted/10">
+          <PlayCircle className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+          <p className="text-muted-foreground">You haven&apos;t streamed yet</p>
+          <Link href="/stream/new">
+            <Button className="mt-4">
+              Start your first stream <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <>
           <div className="space-y-3">
             {sessions.map((session) => (
               <div 
                 key={session.id} 
-                className="border rounded-md p-3 bg-white shadow-sm"
+                className="border rounded-lg p-4 bg-card hover:shadow-md transition-shadow"
               >
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-sm font-medium">
-                      {formatDate(session.start_time)}
-                    </p>
-                    <div className="flex items-center mt-1 text-xs text-gray-500">
-                      <Clock className="h-3 w-3 mr-1" />
-                      {session.duration_minutes ? (
-                        <span>{formatDuration(session.duration_minutes)}</span>
-                      ) : (
-                        <span>--</span>
-                      )}
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-medium">
+                        {formatDate(session.start_time)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                      <div className="flex items-center">
+                        <Clock className="h-3.5 w-3.5 mr-1" />
+                        {session.duration_minutes ? (
+                          <span>{formatDuration(session.duration_minutes)}</span>
+                        ) : (
+                          <span>In progress</span>
+                        )}
+                      </div>
                       
-                      <User className="h-3 w-3 ml-3 mr-1" />
-                      <span>{session.max_viewers} viewer{session.max_viewers !== 1 ? 's' : ''}</span>
+                      <div className="flex items-center">
+                        <User className="h-3.5 w-3.5 mr-1" />
+                        <span>{session.max_viewers} viewer{session.max_viewers !== 1 ? 's' : ''}</span>
+                      </div>
                     </div>
                   </div>
                   
                   <div className="text-right">
-                    <span className={`text-xs px-2 py-1 rounded-full ${
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                       session.status === 'active' 
                         ? 'bg-green-100 text-green-800' 
                         : 'bg-gray-100 text-gray-800'
@@ -105,18 +137,41 @@ export default function StreamHistory() {
                     </span>
                     
                     {session.cost_credits !== null && (
-                      <p className="text-xs mt-1">
-                        <span className="text-gray-500">Cost:</span>{' '}
+                      <p className="text-xs mt-1.5">
+                        <span className="text-muted-foreground">Cost:</span>{' '}
                         <span className="font-medium">{session.cost_credits.toFixed(2)} credits</span>
                       </p>
                     )}
                   </div>
                 </div>
+                
+                {session.status === 'active' && (
+                  <div className="mt-3 pt-3 border-t flex justify-end">
+                    <Link href={`/watch/${session.id}`}>
+                      <Button size="sm" variant="secondary" className="text-xs">
+                        Watch Stream <ChevronRight className="ml-1 h-3 w-3" />
+                      </Button>
+                    </Link>
+                  </div>
+                )}
               </div>
             ))}
           </div>
-        )}
-      </CardContent>
-    </Card>
+          
+          {hasMoreSessions && (
+            <div className="flex justify-center mt-4">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowMore(!showMore)}
+                className="text-xs"
+              >
+                {showMore ? "Show Less" : "Show More"}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 } 
