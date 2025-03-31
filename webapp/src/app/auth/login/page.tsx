@@ -1,44 +1,48 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+  const [redirectInProgress, setRedirectInProgress] = useState(false);
   const searchParams = useSearchParams();
   const nextUrl = searchParams?.get('next') || '/';
+  const { session, refreshUser } = useAuth();
 
   // Check if user is already logged in
   useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          router.push(nextUrl);
-        }
-      } catch (err) {
-        console.error("Error checking session:", err);
-      }
-    };
-    checkUser();
-  }, [router, nextUrl]);
+    if (session) {
+      console.log("LoginPage: User already logged in, redirecting to:", nextUrl);
+      window.location.href = nextUrl;
+    }
+  }, [session, nextUrl]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (redirectInProgress) {
+      console.log("LoginPage: Redirect already in progress, preventing duplicate login");
+      return;
+    }
+    
     setLoading(true);
     setError(null);
+    setRedirectInProgress(true);
 
     try {
+      console.log("LoginPage: Attempting login for:", email);
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -46,19 +50,21 @@ export default function LoginPage() {
 
       if (error) throw error;
       
-      // If we have a valid session after login
       if (data.session) {
-        // Force a router refresh to update the session state
-        console.log(`Login successful, redirecting to: ${nextUrl}`);
-        router.refresh();
-        setTimeout(() => {
-          router.push(nextUrl);
-        }, 100); // Small delay to ensure session is processed
+        console.log(`LoginPage: Login successful, redirecting to: ${nextUrl}`);
+        
+        // First refresh our auth context
+        await refreshUser();
+        
+        // Force redirect without relying on state updates
+        window.location.href = nextUrl;
+      } else {
+        throw new Error("No session returned after login");
       }
     } catch (error: unknown) {
-      console.error("Login error:", error);
+      console.error("LoginPage: Login error:", error);
       setError(error instanceof Error ? error.message : 'Failed to sign in');
-    } finally {
+      setRedirectInProgress(false);
       setLoading(false);
     }
   };

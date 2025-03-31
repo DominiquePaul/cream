@@ -1,87 +1,46 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState } from 'react';
+import { createClient } from '@/utils/supabase/client';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { useRouter } from 'next/navigation';
+import type { User } from '@supabase/supabase-js'; // Import User type from supabase
 
 // Define interfaces for type safety
-interface User {
-  id: string;
-  email?: string;
-}
-
 interface Profile {
   id: string;
-  username?: string;
-  full_name?: string;
-  email?: string;
-  referral_source?: string;
+  username?: string | null;
+  full_name?: string | null;
+  email?: string; // This usually comes from the user object, but kept for consistency if needed
+  referral_source?: string | null;
   is_admin: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
-export default function ProfileForm() {
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
-  const [profileData, setProfileData] = useState<Profile | null>(null);
-  const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
-  const [referralSource, setReferralSource] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+// Define props for the component
+interface ProfileFormProps {
+  user: User;
+  profile: Profile | null; // Profile might be null if not created yet
+}
+
+const supabase = createClient();
+
+export default function ProfileForm({ user, profile }: ProfileFormProps) {
+  const router = useRouter();
+  const { signOut } = useAuth();
+  const [loading, setLoading] = useState(false); // Loading only for updates now
+  // Initialize state from props
+  const [fullName, setFullName] = useState(profile?.full_name || '');
+  const [username, setUsername] = useState(profile?.username || '');
+  const [referralSource, setReferralSource] = useState(profile?.referral_source || '');
+  const [isAdmin] = useState(profile?.is_admin || false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const router = useRouter();
-  
-  useEffect(() => {
-    const getProfile = async () => {
-      try {
-        // First check session - if no session redirect immediately
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.log('No active session, redirecting to login');
-          router.push('/auth/login?next=/profile');
-          return;
-        }
-        
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) {
-          console.log('No user found, redirecting to login');
-          router.push('/auth/login?next=/profile');
-          return;
-        }
-        
-        setUser(user as User);
-        
-        // Fetch user profile from profiles table
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-          
-        if (data) {
-          setProfileData(data as Profile);
-          setFullName(data.full_name || '');
-          setUsername(data.username || '');
-          setReferralSource(data.referral_source || '');
-          setIsAdmin(data.is_admin || false);
-        }
-      } catch (err: unknown) {
-        console.error('Error loading user:', err instanceof Error ? err.message : String(err));
-        router.push('/auth/login?next=/profile');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    getProfile();
-  }, [router]);
 
   const updateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,22 +49,28 @@ export default function ProfileForm() {
     setMessage(null);
     
     try {
-      if (!user) throw new Error('No user');
-      if (!profileData) throw new Error('No profile data');
+      // User is now passed as a prop
+      if (!user) throw new Error('User not available'); 
+      // Profile data is initialized from props
+      const initialUsername = profile?.username;
       
       // Validate username
       if (!/^[a-zA-Z0-9_]+$/.test(username)) {
         throw new Error('Username can only contain letters, numbers, and underscores');
       }
       
-      // Check if username is taken by another user
-      if (username !== profileData.username) {
-        const { data: existingUser } = await supabase
+      // Check if username is taken by another user only if it has changed
+      if (username && username !== initialUsername) {
+        const { data: existingUser, error: checkError } = await supabase
           .from('profiles')
           .select('username')
           .eq('username', username)
           .not('id', 'eq', user.id)
-          .single();
+          .maybeSingle(); // Use maybeSingle to handle 0 or 1 result
+
+        if (checkError) {
+          throw checkError;
+        }
   
         if (existingUser) {
           throw new Error('Username is already taken');
@@ -118,6 +83,8 @@ export default function ProfileForm() {
         username,
         referral_source: referralSource,
         updated_at: new Date().toISOString(),
+        // Do not update is_admin from the form
+        // Do not update email from the form
       };
       
       const { error: updateError } = await supabase
@@ -128,6 +95,9 @@ export default function ProfileForm() {
       if (updateError) throw updateError;
       
       setMessage('Profile updated successfully');
+      // Refresh the page to show updated data
+      router.refresh();
+
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -136,22 +106,17 @@ export default function ProfileForm() {
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/');
-    router.refresh();
+    setLoading(true);
+    try {
+      await signOut();
+      // The redirect is handled by the AuthContext
+    } catch (err) {
+      console.error('Error signing out:', err);
+      setError('Failed to sign out. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
-
-  if (loading) {
-    return (
-      <Card className="w-full max-w-md mx-auto">
-        <CardContent className="p-6">
-          <div className="flex justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-500"></div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -166,7 +131,7 @@ export default function ProfileForm() {
             <Input
               id="email"
               type="email"
-              value={user?.email || ''}
+              value={user?.email || ''} // Use user prop for email
               disabled
               className="bg-gray-50"
             />
@@ -178,7 +143,7 @@ export default function ProfileForm() {
             <Input
               id="fullName"
               type="text"
-              value={fullName}
+              value={fullName} // Use state variable
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFullName(e.target.value)}
               placeholder="Your full name"
             />
@@ -189,7 +154,7 @@ export default function ProfileForm() {
             <Input
               id="username"
               type="text"
-              value={username}
+              value={username} // Use state variable
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
               placeholder="Choose a username"
             />
@@ -203,11 +168,11 @@ export default function ProfileForm() {
             <Input
               id="referralSource"
               type="text"
-              value={referralSource}
+              value={referralSource} // Use state variable
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReferralSource(e.target.value)}
               placeholder="How did you hear about us?"
-              disabled={!!profileData?.referral_source} // Make it readonly if already set
-              className={profileData?.referral_source ? "bg-gray-50" : ""}
+              disabled={!!profile?.referral_source} // Disable based on initial profile prop
+              className={profile?.referral_source ? "bg-gray-50" : ""}
             />
           </div>
           

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import Link from 'next/link';
 import { Check, X, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { debounce } from 'lodash';
+import { useAuth } from '@/context/AuthContext';
 
 export default function SignupForm() {
   const [email, setEmail] = useState('');
@@ -23,6 +23,8 @@ export default function SignupForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [redirectInProgress, setRedirectInProgress] = useState(false);
+  const { session } = useAuth();
   
   // Validation states
   const [isUsernameValid, setIsUsernameValid] = useState<boolean | null>(null);
@@ -30,7 +32,13 @@ export default function SignupForm() {
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | null>(null);
   
-  const router = useRouter();
+  // Check if user is already logged in and redirect if needed
+  useEffect(() => {
+    if (session) {
+      console.log("SignupForm: User already authenticated, redirecting to home");
+      window.location.href = '/';
+    }
+  }, [session]);
   
   // Create debounced username availability check
   const checkUsernameAvailability = useRef(
@@ -102,14 +110,22 @@ export default function SignupForm() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (redirectInProgress) {
+      console.log("SignupForm: Redirect already in progress, preventing duplicate signup");
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     setMessage(null);
+    setRedirectInProgress(true);
 
     // Validate passwords match
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       setLoading(false);
+      setRedirectInProgress(false);
       return;
     }
 
@@ -117,10 +133,13 @@ export default function SignupForm() {
     if (!/^[a-zA-Z0-9_]+$/.test(username)) {
       setError('Username can only contain letters, numbers, and underscores');
       setLoading(false);
+      setRedirectInProgress(false);
       return;
     }
 
     try {
+      console.log("SignupForm: Attempting to create account for:", email);
+      
       // First check if username is already taken
       const { data: existingUser } = await supabase
         .from('profiles')
@@ -131,6 +150,7 @@ export default function SignupForm() {
       if (existingUser) {
         setError('Username is already taken');
         setLoading(false);
+        setRedirectInProgress(false);
         return;
       }
 
@@ -165,16 +185,20 @@ export default function SignupForm() {
       
       // Check if email confirmation is required
       if (data.user && data.user.identities && data.user.identities.length === 0) {
+        console.log("SignupForm: Email already registered");
         setError('The email address is already registered');
+        setRedirectInProgress(false);
+        setLoading(false);
       } else {
+        console.log("SignupForm: Account created successfully");
         setMessage('Account created successfully! Check your email for confirmation link if required.');
-        // Redirect to login after a brief delay
-        setTimeout(() => {
-          router.push('/auth/login');
-        }, 3000);
+        // Redirect to login after a brief delay without relying on state updates
+        window.location.href = '/auth/login';
       }
     } catch (error: unknown) {
+      console.error("SignupForm: Signup error:", error);
       setError(error instanceof Error ? error.message : 'Failed to sign up');
+      setRedirectInProgress(false);
     } finally {
       setLoading(false);
     }

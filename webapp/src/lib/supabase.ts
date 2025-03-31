@@ -1,6 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createClientBase } from '@/utils/supabase/client';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Re-export the client for backwards compatibility
+// This way, existing imports will still work but use the new client under the hood
+export const supabase = createClientBase();
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey) 
+// Also re-export the function for flexibility
+export const createClient = createClientBase; 

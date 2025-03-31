@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import {
   DropdownMenu,
@@ -15,7 +14,6 @@ import { Button } from "@/components/ui/button";
 
 export default function Navbar() {
   const { user, isAdmin, signOut } = useAuth();
-  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   
   // Handle hydration mismatch
@@ -25,8 +23,7 @@ export default function Navbar() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/');
-    router.refresh();
+    window.location.href = '/';
   };
 
   // Get user initials for avatar

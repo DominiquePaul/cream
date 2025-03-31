@@ -1,70 +1,77 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { type NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/utils/supabase/middleware'
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+// Define protected and auth routes
+const protectedPaths = ['/profile']
+const authPaths = ['/auth/login', '/auth/signup']
+const isProtectedPath = (path: string) => protectedPaths.some(pp => path.startsWith(pp))
+const isAuthPath = (path: string) => authPaths.some(ap => path.startsWith(ap))
+
+export async function middleware(request: NextRequest) {
+  // Add a custom header to track loop detection
+  // If we've already seen this exact URL in this request chain, skip processing
+  const requestId = request.headers.get('x-request-id') || crypto.randomUUID()
+  const processedUrl = request.headers.get('x-processed-url')
   
-  // Create a Supabase client
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-    {
-      cookies: {
-        get: (name) => req.cookies.get(name)?.value,
-        set: (name, value, options) => {
-          res.cookies.set({ name, value, ...options });
-        },
-        remove: (name, options) => {
-          res.cookies.set({ name, value: '', ...options });
-        },
-      },
-    }
-  );
-
-  try {
-    // Refresh session if expired
-    const { data: { session } } = await supabase.auth.getSession();
-
-    // Check auth for protected routes
-    const isAuthRoute = req.nextUrl.pathname.startsWith('/auth');
-    const isProtectedRoute = req.nextUrl.pathname.startsWith('/profile') || 
-                            req.nextUrl.pathname.startsWith('/stream') ||
-                            req.nextUrl.pathname.startsWith('/admin');
-
-    // If accessing auth pages while logged in, redirect to home
-    if (isAuthRoute && session) {
-      return NextResponse.redirect(new URL('/', req.url));
-    }
-
-    // If accessing protected pages while logged out, redirect to login
-    if (isProtectedRoute && !session) {
-      const redirectUrl = new URL('/auth/login', req.url);
-      redirectUrl.searchParams.set('next', req.nextUrl.pathname);
-      return NextResponse.redirect(redirectUrl);
-    }
-
-    // Special handling for admin routes
-    if (req.nextUrl.pathname.startsWith('/admin') && session) {
-      // Fetch the user's profile to check if they're an admin
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', session.user.id)
-        .single();
-
-      // If not admin, redirect to home
-      if (!profile?.is_admin) {
-        return NextResponse.redirect(new URL('/', req.url));
-      }
-    }
-  } catch (error) {
-    console.error('Middleware error:', error);
+  if (processedUrl === request.nextUrl.pathname) {
+    console.log(`Detected loop for path: ${request.nextUrl.pathname}`)
+    return NextResponse.next() // Break the loop
   }
-
-  return res;
+  
+  // Get Supabase client with cookie handling
+  const { supabase, response } = createClient(request)
+  
+  // Refresh the auth state (important for session cookies)
+  await supabase.auth.getSession()
+  
+  // Get current user
+  const { data: { user } } = await supabase.auth.getUser()
+  const path = request.nextUrl.pathname
+  
+  console.log(`Middleware: path=${path}, authenticated=${!!user}`)
+  
+  // RULE 1: Protected routes require authentication
+  if (!user && isProtectedPath(path)) {
+    const redirectUrl = new URL('/auth/login', request.url)
+    redirectUrl.searchParams.set('next', path)
+    
+    const redirectResponse = NextResponse.redirect(redirectUrl)
+    // Add tracking headers to detect loops
+    redirectResponse.headers.set('x-request-id', requestId)
+    redirectResponse.headers.set('x-processed-url', path)
+    
+    return redirectResponse
+  }
+  
+  // RULE 2: Auth pages shouldn't be accessible when logged in
+  if (user && isAuthPath(path)) {
+    const redirectUrl = new URL('/profile', request.url)
+    
+    const redirectResponse = NextResponse.redirect(redirectUrl)
+    // Add tracking headers to detect loops
+    redirectResponse.headers.set('x-request-id', requestId)
+    redirectResponse.headers.set('x-processed-url', path)
+    
+    return redirectResponse
+  }
+  
+  // For all other paths, add the tracking headers to the response
+  response.headers.set('x-request-id', requestId)
+  response.headers.set('x-processed-url', path)
+  
+  return response
 }
 
+// Configure the middleware to run on these paths
 export const config = {
-  matcher: ['/auth/:path*', '/profile/:path*', '/broadcast', '/stream', '/admin/:path*'],
+  matcher: [
+    // Match routes that need authentication protection
+    '/profile/:path*',
+    // Match auth routes to prevent authenticated users from accessing
+    '/auth/:path*',
+    // Match the home page and other key pages
+    '/',
+    '/stream/:path*',
+    '/watch/:path*',
+  ],
 } 

@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createClient } from '@/utils/supabase/client';
+import { Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
 interface UserProfile {
@@ -14,6 +15,7 @@ interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null;
+  session: Session | null;
   isAdmin: boolean;
   isLoading: boolean;
   signOut: () => Promise<void>;
@@ -22,6 +24,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  session: null,
   isAdmin: false,
   isLoading: true,
   signOut: async () => {},
@@ -31,17 +34,24 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const supabase = createClient();
+  const router = useRouter();
+  
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
+  const [authInitialized, setAuthInitialized] = useState(false);
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
-      // Get the current session
-      const { data: { session } } = await supabase.auth.getSession();
+      setIsLoading(true);
       
-      if (!session) {
+      // Get the current session
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      setSession(currentSession);
+      
+      if (!currentSession) {
         setUser(null);
         setIsAdmin(false);
         setIsLoading(false);
@@ -52,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', session.user.id)
+        .eq('id', currentSession.user.id)
         .single();
         
       if (error || !profile) {
@@ -62,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUser({
           id: profile.id,
-          email: session.user.email,
+          email: currentSession.user.email,
           username: profile.username,
           full_name: profile.full_name,
           is_admin: profile.is_admin || false,
@@ -76,21 +86,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [supabase]);
 
+  // Initialize auth state
   useEffect(() => {
-    // Initial fetch of user data
-    refreshUser();
+    const initializeAuth = async () => {
+      await refreshUser();
+      setAuthInitialized(true);
+    };
     
-    // Set up auth state change listener
+    initializeAuth();
+  }, [refreshUser]);
+  
+  // Set up auth state change listener, but only after initial load
+  useEffect(() => {
+    if (!authInitialized) return;
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (session) {
-          refreshUser();
-        } else {
+      async (event) => {
+        console.log('Auth state changed:', event);
+        
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          await refreshUser();
+          
+          // If we're on an auth page, redirect to profile
+          if (window.location.pathname.startsWith('/auth')) {
+            console.log('Auth state changed and we are on auth page, redirecting to profile');
+            router.push('/profile');
+          }
+        } else if (event === 'SIGNED_OUT') {
           setUser(null);
+          setSession(null);
           setIsAdmin(false);
-          setIsLoading(false);
         }
       }
     );
@@ -98,25 +125,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [refreshUser, authInitialized, router, supabase]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setIsAdmin(false);
-    router.refresh();
+    setIsLoading(true);
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
+      setIsAdmin(false);
+      
+      // Use Next.js router
+      router.push('/');
+      router.refresh();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const contextValue = {
+    user,
+    session,
+    isAdmin,
+    isLoading,
+    signOut,
+    refreshUser,
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAdmin,
-        isLoading,
-        signOut,
-        refreshUser,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
