@@ -29,13 +29,15 @@ const StreamDurationDisplay = ({
   isActive,
   onStart,
   onStop,
-  isDisabled
+  isDisabled,
+  streamId
 }: { 
   duration: number, 
   isActive: boolean,
   onStart: () => void,
   onStop: () => void,
-  isDisabled: boolean
+  isDisabled: boolean,
+  streamId: string | null
 }) => {
   // Calculate hours, minutes, seconds
   const hours = Math.floor(duration / 60);
@@ -54,6 +56,41 @@ const StreamDurationDisplay = ({
             <div className="text-lg font-bold">
               {hours > 0 ? `${hours}h ` : ''}
               {minutes}m {seconds}s
+            </div>
+          )}
+        </div>
+        
+        {/* Stream URL display */}
+        <div className="mb-3">
+          {isActive && streamId ? (
+            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-md mb-3">
+              <p className="text-sm font-medium text-indigo-800 mb-1">Stream URL:</p>
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  readOnly
+                  value={`${window.location.origin}/watch/${streamId}`}
+                  className="text-sm bg-white/70 border border-indigo-100 rounded p-2 w-full"
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <button
+                  className="ml-2 p-2 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
+                  title="Copy to clipboard"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/watch/${streamId}`);
+                    alert("Stream URL copied to clipboard!");
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-gray-50 border border-gray-100 rounded-md mb-3">
+              <p className="text-sm text-gray-500 text-center">Start streaming to get a shareable URL</p>
             </div>
           )}
         </div>
@@ -1310,6 +1347,7 @@ export default function StreamPage() {
             onStart={startStream}
             onStop={stopStream}
             isDisabled={isUpdating || isModalStarting}
+            streamId={currentStreamIdRef.current}
           />
           
           {/* Style Configuration Card */}
