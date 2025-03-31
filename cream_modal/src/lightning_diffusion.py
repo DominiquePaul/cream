@@ -401,8 +401,8 @@ class LightningDiffusionProcessor:
             
             # Extract the output image
             result_image = None
-            if hasattr(output, 'images') and isinstance(output.images, list) and len(output.images) > 0:
-                result_image = output.images[0]
+            if hasattr(output, 'images') and isinstance(output.images, list) and len(output.images) > 0: # type: ignore
+                result_image = output.images[0] # type: ignore
             elif isinstance(output, (tuple, list)) and len(output) > 0:
                 result_image = output[0] if isinstance(output[0], Image.Image) else None
             
@@ -623,7 +623,7 @@ async def apply_lightning_diffusion(
         If return_depth_map is True and ControlNet is used: Tuple of (processed image bytes, depth map bytes)
     """
     # Get or create processor
-    proc = get_lightning_processor(
+    proc = get_processor(
         use_controlnet=use_controlnet,
         style_prompt=prompt,
         strength=strength,

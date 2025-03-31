@@ -3,6 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useRef, useState, useCallback } from "react";
+import AdminDebug from '@/components/AdminDebug';
+import { useAuth } from '@/context/AuthContext';
+import Image from 'next/image';
 
 // Define global types for the window object
 declare global {
@@ -43,6 +46,8 @@ export default function BroadcastPage() {
   const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
+  
+  const { isAdmin } = useAuth();
   
   // Define sendFrames with useCallback before using it in useEffect
   const sendFrames = useCallback(() => {
@@ -631,20 +636,17 @@ export default function BroadcastPage() {
               <div className="absolute inset-0 flex items-center justify-center bg-black">
                 {imageData ? (
                   <div className="absolute inset-0 w-full h-full">
-                    <img
+                    <Image
                       src={imageData}
                       alt="Processed stream"
+                      fill
                       style={{
-                        position: 'absolute',
-                        inset: 0,
-                        width: '100%',
-                        height: '100%',
                         objectFit: 'contain'
                       }}
                       onLoad={() => {
                         console.log("✅ Processed image loaded successfully");
                       }}
-                      onError={(err) => {
+                      onError={(err: React.SyntheticEvent<HTMLImageElement, Event>) => {
                         console.error("❌ Processed image failed to load", err);
                       }}
                     />
@@ -768,6 +770,8 @@ export default function BroadcastPage() {
               </>
             )}
           </div>
+          
+          {isAdmin && <AdminDebug />}
         </CardContent>
         <CardFooter className="flex justify-between">
           {!isStreaming ? (

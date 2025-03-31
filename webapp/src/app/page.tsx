@@ -67,7 +67,7 @@ export default function Home() {
           <h1 className="text-5xl font-bold text-gray-900 mb-6">AI-Stylized Livestreaming</h1>
           <p className="text-xl text-gray-600 max-w-3xl">
             Create AI-stylized livestreams that transform your webcam feed into artistic creations using a diffusion model.
-            Each frame is processed with AI which takes approximately 5 seconds - perfect for creative and artistic streams.
+            Each frame is processed with AI which takes approximately 1.5 seconds - perfect for creative and artistic streams.
           </p>
         </div>
 
@@ -102,7 +102,7 @@ export default function Home() {
               </p>
               <div className="mt-2 p-2 bg-blue-50 rounded-md">
                 <p className="text-sm text-gray-700">
-                  <strong>Note:</strong> Processing takes ~5 seconds per frame for artistic quality
+                  <strong>Note:</strong> Processing takes ~1.5 seconds per frame for artistic quality
                 </p>
               </div>
             </CardContent>

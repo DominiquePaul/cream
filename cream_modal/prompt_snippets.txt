@@ -11,3 +11,126 @@ I need something that is compatible with an upload from (a) a nextjs web app but
 
 How can I best set this up to ensure: 
 - that the lag doesnt increase over time? I don't want to process all frames, but only the most recent one after the GPU has finished processing the previous one. (I'm kind of flexible on this requirement)
+
+
+
+I now want to add a registration/login system to the webapp.
+
+Features:
+- Users need to register to start a stream
+- A user can needs to consume credits to start a stream
+- A user can buy more credits using stripe checkout.
+- A user can only have one stream active at a time.
+- A user stream url is tied to their username.
+- A user can only start a stream if they have enough credits.
+- A user can only start a stream if they are logged in.
+- Viewers do not need to be logged in. 
+- Users can add comments to streams
+- If a streamer has enabled this stream feature, users can request styles for the stream that are applied to the diffusion model. 
+- A streamer can enable/disable comments and styles. 
+- A streamer can only start a stream if they have more than 1 credit.
+- 1 credit allows streaming for 10 minutes.
+- A streamer can see how many people are watching their stream. 
+
+
+
+Livestream Platform Structure
+
+
+1. Authentication System
+Core Features:
+- User registration and login
+- User profile management
+- Session handling
+Technical Components:
+- Authentication API endpoints
+- User database schema
+- JWT or session-based authentication
+- Password hashing and security
+
+
+2. Stream Management
+Core Features:
+- Starting/stopping streams
+- Stream URL generation based on username
+- Stream duration tracking
+- Limiting to one active stream per user
+Technical Components:
+- WebSocket connection setup
+- Stream metadata storage
+- Stream lifecycle management
+- Integration with credits system
+
+
+3. Credits System
+Core Features:
+- Credit balance tracking per user
+- Credit consumption (1 credit = 10 minutes)
+- Credit requirements enforcement
+- Credits purchase workflow
+Technical Components:
+- Credits database schema
+- Credit consumption logic
+- Stream duration monitoring
+- Integration with payment system
+
+
+4. Payment Integration
+Core Features:
+- Stripe Checkout integration
+- Payment processing
+- Credit purchasing flow
+Technical Components:
+- Stripe API integration
+- Payment webhook handling
+- Transaction records
+- Receipt generation
+
+
+5. Viewer Experience
+Core Features:
+- Public stream viewing
+- Viewer count tracking
+- Comment system for streams
+- Style request system (when enabled)
+Technical Components:
+- Public stream access control
+- Real-time viewer count
+- Comment database and API
+- Style request handling
+
+
+6. Streamer Controls
+Core Features:
+- Toggle comments on/off
+- Toggle style requests on/off
+- View audience metrics
+- Credit status monitoring
+Technical Components:
+- Stream settings management
+- Real-time settings application
+- Analytics collection
+- Dashboard UI
+
+
+7. ML Model Integration
+Core Features:
+- Frame processing with diffusion model
+- Style application based on requests
+- Optimized processing to prevent lag
+Technical Components:
+- GPU processing queue
+- Frame selection algorithm
+- Style parameter handling
+- Processing status feedback
+
+
+Implementation Approach
+I suggest we tackle these workpages in the following order:
+- Authentication System (foundational requirement)
+- Credits System (required for stream management)
+- Stream Management (core functionality)
+- Payment Integration (enhances credits system)
+- Viewer Experience (public-facing features)
+Streamer Controls (enhances user experience)
+ML Model Integration (advanced functionality)

@@ -8,3 +8,23 @@ Main challenges:
 - Get the model to run sufficiently fast such that there is at least 1 FPS
 - Keep the lag of the stream below 5 seconds
 - Setting up the streaming infrastructure so that users can start and stop new streams
+
+
+General instructions:
+- Install shadcn components instead of building them yourself when you can. When isntalling with shadcn, please use `npx shadcn@latest add ...`
+- Use NextJS 15 (or 14 if need be)
+
+
+
+These are my supabase tables:
+Supabase Tables:
+
+profiles:
+- id: uuid (primary key)
+- username: text
+- full_name: text  
+- email: text
+- referral_source: text
+- is_admin: boolean
+- created_at: timestamptz
+- updated_at: timestamptz
