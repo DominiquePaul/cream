@@ -94,11 +94,6 @@ export default function Navbar() {
                     View Profile
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Link href="/stream" className="w-full">
-                    Start Streaming
-                  </Link>
-                </DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem>
                     <Link href="/admin" className="w-full">
