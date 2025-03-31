@@ -79,11 +79,11 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-0 shadow-sm">
+      <Card className="overflow-hidden border-0 shadow-lg">
         <CardContent className="p-0">
-          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Account Information</h2>
-            <p className="text-sm text-gray-500 mt-1">Update your personal details</p>
+          <div className="bg-gradient-to-r from-indigo-100 to-blue-100 px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Personal Information</h2>
+            <p className="text-sm text-gray-500 mt-1">Update your profile details</p>
           </div>
           
           <div className="p-6">
@@ -103,7 +103,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
                       type="email"
                       value={user?.email || ''}
                       disabled
-                      className="pl-3 pr-3 py-2 bg-gray-50 border-gray-200 text-gray-500 w-full"
+                      className="pl-3 pr-3 py-2 bg-gray-50 border border-gray-200 text-gray-500 w-full rounded-md"
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">Your email address cannot be changed</p>
@@ -124,7 +124,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
-                    className="pl-3 pr-3 py-2 border-gray-200 w-full"
+                    className="pl-3 pr-3 py-2 border border-gray-200 w-full rounded-md focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
                   />
                 </div>
                 
@@ -143,7 +143,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="Choose a username"
-                    className="pl-3 pr-3 py-2 border-gray-200 w-full"
+                    className="pl-3 pr-3 py-2 border border-gray-200 w-full rounded-md focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Used for your stream URL. Only letters, numbers, and underscores.
@@ -176,7 +176,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
               <div className="flex justify-end">
                 <Button 
                   type="submit" 
-                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+                  className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white px-6 py-2 rounded-md shadow-sm"
                   disabled={isPending}
                 >
                   {isPending ? 'Saving Changes...' : 'Save Changes'}
@@ -187,9 +187,9 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
         </CardContent>
       </Card>
       
-      <Card className="overflow-hidden border-0 shadow-sm">
+      <Card className="overflow-hidden border-0 shadow-lg">
         <CardContent className="p-0">
-          <div className="bg-red-50 px-6 py-4 border-b border-gray-200">
+          <div className="bg-gradient-to-r from-red-50 to-orange-50 px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Account Actions</h2>
             <p className="text-sm text-gray-500 mt-1">Manage your account</p>
           </div>
@@ -205,7 +205,7 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
               <Button 
                 variant="outline" 
                 onClick={handleSignOut} 
-                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 flex items-center gap-2"
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 flex items-center gap-2 rounded-md shadow-sm"
                 disabled={signingOut}
               >
                 <LogOut className="h-4 w-4" />
