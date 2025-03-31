@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CreditCard, History, User, BarChart, Users, Flame, Clock, Video, VideoOff } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from "@/components/ui/button";
+import ProfileClient from './client';
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -54,6 +55,7 @@ export default async function ProfilePage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
+      <ProfileClient />
       {/* Enhanced Header Section - Removed New Stream button */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 pb-6 border-b">
         <div>
