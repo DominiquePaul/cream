@@ -1,40 +1,24 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 export async function createClient() {
+  const cookieStore = await cookies()
+  
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async get(name: string) {
-          try {
-            // Cookies must be awaited in Next.js 15
-            const cookieStore = await cookies()
-            return cookieStore.get(name)?.value
-          } catch (err) {
-            console.error('Error getting cookie:', err)
-            return undefined
-          }
+        async getAll() {
+          return cookieStore.getAll()
         },
-        async set(name: string, value: string, options: CookieOptions) {
+        async setAll(cookiesToSet) {
           try {
-            // Cookies must be awaited in Next.js 15
-            const cookieStore = await cookies()
-            cookieStore.set({ name, value, ...options })
+            cookiesToSet.forEach(({ name, value, options }) => 
+              cookieStore.set({ name, value, ...options })
+            )
           } catch {
-            // Silently ignore errors when trying to set cookies in Server Components
-            // console.error('Error setting cookie')
-          }
-        },
-        async remove(name: string, options: CookieOptions) {
-          try {
-            // Cookies must be awaited in Next.js 15
-            const cookieStore = await cookies()
-            cookieStore.delete({ name, ...options })
-          } catch {
-            // Silently ignore errors when trying to delete cookies in Server Components
-            // console.error('Error deleting cookie')
+            // Silently ignore errors when setting cookies in Server Components
           }
         },
       },
