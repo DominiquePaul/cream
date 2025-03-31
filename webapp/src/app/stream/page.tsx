@@ -1393,7 +1393,29 @@ export default function StreamPage() {
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-indigo-900">Your Stream</h1>
           <div className="flex items-center space-x-3">
-            {user && <CreditsDisplay compact={true} showTimeRemaining={false} />}
+            {user && (
+              <div className="flex items-center px-3 py-2 bg-white rounded-lg shadow-sm border border-slate-200">
+                <div className="relative group">
+                  <CreditsDisplay 
+                    compact={true} 
+                    showTimeRemaining={true} 
+                    showPurchase={true}
+                  />
+                  <div className="absolute left-0 top-full mt-2 w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                    <div className="absolute -top-1 left-4 w-2 h-2 bg-slate-800 transform rotate-45"></div>
+                    <p>Time shown is how long you can continue streaming with your current credit balance.</p>
+                  </div>
+                </div>
+                {user.credits && user.credits < 3 && (
+                  <div className="ml-2 flex items-center text-amber-600 text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>Low credits</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         
@@ -1606,21 +1628,6 @@ export default function StreamPage() {
               isStreaming={isStreaming}
               isUpdating={updatingPrompt}
             />
-            
-            {/* Credits display */}
-            {user && (
-              <Card className="shadow-md border-0 overflow-hidden py-0">
-                <CardHeader className="pb-2 pt-2 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-emerald-100">
-                  <CardTitle className="text-base flex items-center text-emerald-800">
-                    <span className="mr-2">💎</span>
-                    Credits
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <CreditsDisplay showTimeRemaining={true} />
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
       </div>
