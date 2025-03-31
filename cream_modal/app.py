@@ -82,9 +82,9 @@ ml_image = (Image
                 poetry_lockfile="./poetry.lock",
                 without=["dev"],
             )
-            .run_function(build_initialize_models)  # Initialize models during build
-            .add_local_python_source("src")
-            .add_local_python_source("_remote_module_non_scriptable"))
+            .run_function(build_initialize_models)
+            .add_local_python_source("_remote_module_non_scriptable")
+            .add_local_python_source("src"))
 
 # Global processors dictionary that will be populated during container startup
 global_processors = {}
