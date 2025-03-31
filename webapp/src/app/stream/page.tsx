@@ -348,8 +348,10 @@ export default function StreamPage() {
     if (isStreaming && streamStartTime.current !== null) {
       console.log("Starting duration timer with start time:", new Date(streamStartTime.current).toISOString());
       
+      let lastDeductedMinute = 0; // Track when we last deducted credits
+      
       // Set up a timer to update duration every second
-      durationTimerRef.current = setInterval(() => {
+      durationTimerRef.current = setInterval(async () => {
         const now = Date.now();
         const durationMs = now - streamStartTime.current!;
         
@@ -363,6 +365,68 @@ export default function StreamPage() {
         const used = durationMinutes * 0.2;
         setCreditsUsed(used);
         
+        // Real-time credit deductions - every whole minute
+        const currentWholeMinute = Math.floor(durationMinutes);
+        if (currentWholeMinute > lastDeductedMinute && sessionId.current) {
+          // Calculate credits to deduct for this minute
+          const creditsToDeduct = 0.2; // 0.2 credits per minute
+          lastDeductedMinute = currentWholeMinute;
+          
+          console.log(`Processing credit deduction for minute ${currentWholeMinute}: ${creditsToDeduct} credits`);
+          
+          try {
+            // First, get current credits to calculate new value
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('credits')
+              .eq('id', user?.id)
+              .single();
+            
+            if (profileError) {
+              console.error("Error getting current credits:", profileError);
+              return;
+            }
+            
+            const currentCredits = profileData?.credits || 0;
+            const newCredits = Math.max(0, currentCredits - creditsToDeduct);
+            
+            // Update the user's credits directly
+            const { error: updateError } = await supabase
+              .from('profiles')
+              .update({ 
+                credits: newCredits,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', user?.id);
+            
+            if (updateError) {
+              console.error("Error updating credits:", updateError);
+            } else {
+              console.log(`Successfully updated credits from ${currentCredits} to ${newCredits}`);
+              
+              // Record the credit usage transaction
+              const { error: transactionError } = await supabase
+                .from('credit_transactions')
+                .insert({
+                  profile_id: user?.id,
+                  amount: -creditsToDeduct, // Negative amount for consumption
+                  type: 'usage',
+                  description: `Streaming minute ${currentWholeMinute}`
+                });
+              
+              if (transactionError) {
+                console.error("Error recording credit transaction:", transactionError);
+              }
+              
+              // Refresh the user to update the displayed credit balance
+              await refreshUser();
+              console.log("Called refreshUser() - Current user state:", user);
+              console.log(`Successfully deducted ${creditsToDeduct} credits for minute ${currentWholeMinute}`);
+            }
+          } catch (err) {
+            console.error("Error processing minute credit deduction:", err);
+          }
+        }
       }, 1000);
     } else {
       // Clear the timer when not streaming
@@ -378,7 +442,7 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, streamStartTime.current]); // Add streamStartTime.current as a dependency
+  }, [isStreaming, user?.id, refreshUser]); // Remove streamStartTime.current to avoid triggering too often
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
@@ -645,22 +709,32 @@ export default function StreamPage() {
       durationTimerRef.current = null;
     }
     
-    // Update stream session and deduct credits
+    // Update stream session and deduct credits for any remaining partial minute
     try {
       // Only update if we have a session and actually streamed
       if (sessionId.current && streamStartTime.current) {
+        // Calculate actual duration in minutes
         const now = Date.now();
         const durationMs = now - streamStartTime.current;
-        const durationMinutes = Math.ceil(durationMs / (1000 * 60)); // Round up to nearest minute
-        const creditsUsed = durationMinutes * 0.2; // 12 credits per hour = 0.2 per minute
+        const durationMinutes = durationMs / (1000 * 60);
+        
+        // Calculate total credits used
+        const totalCreditsUsed = durationMinutes * 0.2;
+        
+        // We've already deducted for whole minutes, so calculate partial minute credits
+        const wholeMinutes = Math.floor(durationMinutes);
+        const partialMinute = durationMinutes - wholeMinutes;
+        const partialCredits = partialMinute > 0 ? partialMinute * 0.2 : 0;
+        
+        console.log(`Stream ended - Duration: ${durationMinutes.toFixed(2)} minutes, Partial credits to deduct: ${partialCredits.toFixed(2)}`);
         
         // Update stream session to mark as ended
         const { error: sessionError } = await supabase
           .from('stream_sessions')
           .update({
             end_time: new Date().toISOString(),
-            duration_minutes: durationMinutes,
-            cost_credits: creditsUsed,
+            duration_minutes: Math.ceil(durationMinutes), // Round up for billing
+            cost_credits: totalCreditsUsed,
             status: 'completed'
           })
           .eq('id', sessionId.current);
@@ -669,32 +743,52 @@ export default function StreamPage() {
           console.error("Error updating stream session:", sessionError);
         }
         
-        // Record the credit usage transaction
-        const { error: transactionError } = await supabase
-          .from('credit_transactions')
-          .insert({
-            profile_id: user?.id,
-            amount: -creditsUsed, // Negative amount for consumption
-            type: 'usage',
-            description: `${durationMinutes} minutes of streaming`
-          });
-        
-        if (transactionError) {
-          console.error("Error recording credit transaction:", transactionError);
-        }
-        
-        // Update the user's credit balance
-        const { error: creditsError } = await supabase
-          .rpc('deduct_credits', {
-            user_id: user?.id,
-            amount: creditsUsed
-          });
-        
-        if (creditsError) {
-          console.error("Error updating credits:", creditsError);
-        } else {
-          // Refresh the user to update the displayed credit balance
-          await refreshUser();
+        // Only deduct for partial minute if it exists
+        if (partialCredits > 0) {
+          // Get current credits to calculate new value
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('credits')
+            .eq('id', user?.id)
+            .single();
+          
+          if (profileError) {
+            console.error("Error getting current credits:", profileError);
+          } else {
+            const currentCredits = profileData?.credits || 0;
+            const newCredits = Math.max(0, currentCredits - partialCredits);
+            
+            // Update the user's credits directly
+            const { error: updateError } = await supabase
+              .from('profiles')
+              .update({ 
+                credits: newCredits,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', user?.id);
+            
+            if (updateError) {
+              console.error("Error updating credits for partial minute:", updateError);
+            } else {
+              // Record the credit usage transaction
+              const { error: transactionError } = await supabase
+                .from('credit_transactions')
+                .insert({
+                  profile_id: user?.id,
+                  amount: -partialCredits, // Negative amount for consumption
+                  type: 'usage',
+                  description: `Partial minute (${(partialMinute * 60).toFixed(0)}s) of streaming`
+                });
+              
+              if (transactionError) {
+                console.error("Error recording transaction for partial minute:", transactionError);
+              }
+              
+              // Refresh the user to update the displayed credit balance
+              await refreshUser();
+              console.log(`Updated credits from ${currentCredits} to ${newCredits} for partial minute`);
+            }
+          }
         }
       }
     } catch (err) {
