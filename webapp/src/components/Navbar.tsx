@@ -118,18 +118,11 @@ export default function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="space-x-2">
-              <Link href="/auth/login">
-                <Button variant="outline" size="sm" className="w-full">
-                  Sign in
-                </Button>
-              </Link>
-              <Link href="/auth/signup">
-                <Button size="sm" className="w-full">
-                  Create account
-                </Button>
-              </Link>
-            </div>
+            <Link href="/auth/login">
+              <Button variant="outline" size="sm">
+                Sign in
+              </Button>
+            </Link>
           )}
         </div>
       </div>

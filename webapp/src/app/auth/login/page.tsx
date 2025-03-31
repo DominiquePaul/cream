@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
@@ -18,22 +18,45 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const nextUrl = searchParams?.get('next') || '/';
 
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          router.push(nextUrl);
+        }
+      } catch (err) {
+        console.error("Error checking session:", err);
+      }
+    };
+    checkUser();
+  }, [router, nextUrl]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
       
-      router.push(nextUrl); // Redirect to the intended page after login
-      router.refresh(); // Refresh the page to update the session
+      // If we have a valid session after login
+      if (data.session) {
+        // Force a router refresh to update the session state
+        console.log(`Login successful, redirecting to: ${nextUrl}`);
+        router.refresh();
+        setTimeout(() => {
+          router.push(nextUrl);
+        }, 100); // Small delay to ensure session is processed
+      }
     } catch (error: unknown) {
+      console.error("Login error:", error);
       setError(error instanceof Error ? error.message : 'Failed to sign in');
     } finally {
       setLoading(false);
@@ -85,13 +108,15 @@ export default function LoginPage() {
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex justify-center border-t pt-4">
-          <p className="text-sm text-gray-600">
-            Don&apos;t have an account?{' '}
-            <Link href="/auth/signup" className="text-blue-600 hover:underline">
-              Sign up
+        <CardFooter className="flex flex-col space-y-4 border-t pt-6">
+          <div className="text-center">
+            <p className="text-sm text-gray-600 mb-2">Don&apos;t have an account?</p>
+            <Link href="/auth/signup">
+              <Button variant="default" className="w-full">
+                Create Account
+              </Button>
             </Link>
-          </p>
+          </div>
         </CardFooter>
       </Card>
     </div>

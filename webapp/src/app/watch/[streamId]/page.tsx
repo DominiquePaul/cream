@@ -585,7 +585,7 @@ export default function WatchPage() {
         streamStatusCheckRef.current = null;
       }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, lastFrameTime, streamId]);
 
   // Update the image loading part of the useEffect to be more efficient
   useEffect(() => {

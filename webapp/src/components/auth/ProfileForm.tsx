@@ -40,10 +40,19 @@ export default function ProfileForm() {
   useEffect(() => {
     const getProfile = async () => {
       try {
+        // First check session - if no session redirect immediately
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.log('No active session, redirecting to login');
+          router.push('/auth/login?next=/profile');
+          return;
+        }
+        
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
-          router.push('/auth/login');
+          console.log('No user found, redirecting to login');
+          router.push('/auth/login?next=/profile');
           return;
         }
         
@@ -65,6 +74,7 @@ export default function ProfileForm() {
         }
       } catch (err: unknown) {
         console.error('Error loading user:', err instanceof Error ? err.message : String(err));
+        router.push('/auth/login?next=/profile');
       } finally {
         setLoading(false);
       }

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function AdminDebug() {
-  const { isAdmin, user, profile } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [showDebug, setShowDebug] = useState(false);
 
   if (!isAdmin) return null;
@@ -33,18 +33,10 @@ export default function AdminDebug() {
                 {JSON.stringify(user, null, 2)}
               </pre>
               
-              <h3 className="font-medium">Profile Information:</h3>
-              <pre className="bg-gray-100 p-2 rounded overflow-auto text-xs">
-                {JSON.stringify(profile, null, 2)}
-              </pre>
-              
               {/* Add more debug tools as needed */}
               <div className="flex space-x-2 mt-4">
                 <Button variant="outline" size="sm" onClick={() => console.log('Current user:', user)}>
                   Log User to Console
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => console.log('User profile:', profile)}>
-                  Log Profile to Console
                 </Button>
               </div>
             </div>
