@@ -23,6 +23,33 @@ declare global {
   }
 }
 
+// Create a new StreamDurationDisplay component
+const StreamDurationDisplay = ({ duration, isActive }: { duration: number, isActive: boolean }) => {
+  if (!isActive) return null;
+  
+  // Calculate hours, minutes, seconds
+  const hours = Math.floor(duration / 60);
+  const minutes = Math.floor(duration % 60);
+  const seconds = Math.floor((duration * 60) % 60);
+  
+  return (
+    <Card className="mb-4 shadow-md bg-gradient-to-r from-purple-50 to-indigo-50">
+      <CardContent className="py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Hourglass className="h-5 w-5 text-indigo-500 mr-2" />
+            <span className="font-medium text-indigo-700">Stream Duration</span>
+          </div>
+          <div className="text-lg font-bold">
+            {hours > 0 ? `${hours}h ` : ''}
+            {minutes}m {seconds}s
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 export default function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1007,23 +1034,6 @@ export default function StreamPage() {
                   </div>
                 </div>
               )}
-              
-              {/* Credits usage during streaming */}
-              {isStreaming && streamStartTime.current && (
-                <div className="mt-4 p-3 bg-indigo-50 rounded-md">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center">
-                      <Hourglass className="h-4 w-4 text-indigo-500 mr-2" />
-                      <span className="text-sm font-medium">
-                        Stream duration: {Math.floor(streamingDuration / 60)}h {Math.floor(streamingDuration % 60)}m {Math.floor((streamingDuration * 60) % 60)}s
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      Credits used: <span className="font-medium">{creditsUsed.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
             </CardContent>
 
             <CardFooter className="flex justify-between">
@@ -1045,6 +1055,12 @@ export default function StreamPage() {
         
         {/* Right sidebar */}
         <div className="lg:col-span-1">
+          {/* Stream Duration Display */}
+          <StreamDurationDisplay 
+            duration={streamingDuration} 
+            isActive={isStreaming && streamStartTime.current !== null} 
+          />
+          
           {/* Credits card */}
           <CreditsDisplay showTimeRemaining={true} />
           
