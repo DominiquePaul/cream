@@ -5,7 +5,7 @@ import { headers } from 'next/headers';
 
 // Initialize Stripe client
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16', // Use the latest API version
+  apiVersion: '2025-02-24.acacia', // Use the latest supported API version
 });
 
 export async function POST(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.text();
     
     // Get the signature from the headers
-    const headersList = headers();
+    const headersList = await headers();
     const signature = headersList.get('stripe-signature') || '';
     
     // Verify the signature
@@ -50,10 +50,26 @@ export async function POST(request: NextRequest) {
       const supabase = await createClient();
       
       // Add credits to user's account
+      // Instead of using RPC, directly update the profile
+      const { data: profile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('credits')
+        .eq('id', userId)
+        .single();
+        
+      if (fetchError) {
+        console.error('Error fetching user credits:', fetchError);
+        return NextResponse.json({ error: 'Error fetching user credits' }, { status: 500 });
+      }
+      
+      // Calculate new credit balance
+      const newCredits = (profile.credits || 0) + credits;
+      
+      // Update the profile
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
-          credits: supabase.rpc('increment_credits', { user_id: userId, amount: credits }),
+          credits: newCredits,
           updated_at: new Date().toISOString()
         })
         .eq('id', userId);

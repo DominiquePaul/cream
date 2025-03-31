@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 
 // Initialize Stripe client
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16', // Use the latest API version
+  apiVersion: '2025-02-24.acacia', // Latest supported API version
 });
 
 // Products and prices
@@ -42,12 +42,15 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
     
-    // Define metadata
-    const metadata = {
+    // Define metadata - make sure it contains only string values
+    const metadata: Record<string, string> = {
       user_id: user.id,
-      email: user.email,
-      username: profile?.username || '',
+      credits: customAmount || creditAmount,
     };
+    
+    // Only add these if they're not undefined
+    if (user.email) metadata.user_email = user.email;
+    if (profile?.username) metadata.username = profile.username;
     
     let session;
     
@@ -77,10 +80,7 @@ export async function GET(request: NextRequest) {
           },
         ],
         mode: 'payment',
-        metadata: {
-          ...metadata,
-          credits: numericAmount.toString(),
-        },
+        metadata: metadata,
         success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=success`,
         cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=cancelled`,
       });
@@ -95,10 +95,7 @@ export async function GET(request: NextRequest) {
           },
         ],
         mode: 'payment',
-        metadata: {
-          ...metadata,
-          credits: creditAmount,
-        },
+        metadata: metadata,
         success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=success`,
         cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/profile?payment=cancelled`,
       });
