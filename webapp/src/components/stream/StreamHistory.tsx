@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from '@/lib/supabase';
 import { formatDate, formatDuration } from '@/utils/formatters';
-import { Clock, User, Calendar } from 'lucide-react';
+import { Clock, User } from 'lucide-react';
 
 interface StreamSession {
   id: string;
@@ -67,7 +67,7 @@ export default function StreamHistory() {
           <div className="text-center py-4 text-red-500">{error}</div>
         ) : sessions.length === 0 ? (
           <div className="text-center py-4 text-gray-500">
-            <p>You haven't streamed yet.</p>
+            <p>You haven&apos;t streamed yet.</p>
             <p className="text-sm mt-1">Start a stream to see your history here!</p>
           </div>
         ) : (

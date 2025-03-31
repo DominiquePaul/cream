@@ -27,14 +27,12 @@ export default function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [streamId, setStreamId] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Initializing camera...");
   const frameCounterRef = useRef(0);
   const requestAnimationFrameRef = useRef<number | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
   const isStreamingRef = useRef(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const currentStreamIdRef = useRef<string | null>(null);
   const frameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingTimesRef = useRef<number[]>([]);
@@ -379,7 +377,7 @@ export default function StreamPage() {
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
     // Create a stream session in the database
-    const startStreamSession = async (streamId: string) => {
+    const startStreamSession = async () => {
       try {
         // Create a new stream session
         const { data, error } = await supabase
@@ -446,7 +444,6 @@ export default function StreamPage() {
       ws.onopen = () => {
         console.log("WebSocket connection established as broadcaster");
         setStatus("Connected to server");
-        setWsConnected(true);
         clearInterval(stateInterval);
         
         // Send a ping to test bi-directional communication
@@ -462,14 +459,13 @@ export default function StreamPage() {
         }
         
         // Stream is created automatically by connecting to the broadcaster path
-        setStreamId(newStreamId);
         setIsStreaming(true);
         isStreamingRef.current = true;
         currentStreamIdRef.current = newStreamId;
         setStatus(`Streaming with ID: ${newStreamId}`);
         
         // Start the stream session in the database
-        startStreamSession(newStreamId);
+        startStreamSession();
         
         // Start sending frames
         console.log(`Starting to send frames for stream: ${newStreamId}`);
@@ -505,14 +501,12 @@ export default function StreamPage() {
         }
         setError("WebSocket error occurred - check console for details");
         setStatus("Connection error");
-        setWsConnected(false);
         clearInterval(stateInterval);
       };
       
       ws.onclose = (event) => {
         console.log(`WebSocket connection closed with code ${event.code} and reason: ${event.reason || 'No reason provided'}`);
         setStatus(`Disconnected (code: ${event.code})`);
-        setWsConnected(false);
         clearInterval(stateInterval);
         
         // Only stop streaming if we were actively streaming
@@ -710,7 +704,6 @@ export default function StreamPage() {
     // Reset streaming state
     setIsStreaming(false);
     isStreamingRef.current = false;
-    setStreamId(null);
     currentStreamIdRef.current = null;
     sessionId.current = null;
     streamStartTime.current = null;
