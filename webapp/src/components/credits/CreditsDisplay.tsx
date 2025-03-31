@@ -171,7 +171,7 @@ export default function CreditsDisplay({ showPurchase = true, compact = false, s
           Credits Balance
         </CardTitle>
         <CardDescription>
-          Used for streaming time (1 credit = €1)
+          Used for streaming time (1 credit = 5 minutes of streaming time)
         </CardDescription>
       </CardHeader>
       <CardContent className="pb-4">
