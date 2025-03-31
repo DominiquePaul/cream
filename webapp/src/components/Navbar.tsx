@@ -55,9 +55,9 @@ export default function Navbar() {
           </Link>
           
           <nav className="hidden md:flex ml-10 space-x-8">
-            <Link href="/streams" className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
+            {/* <Link href="/streams" className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium">
               Public Streams
-            </Link>
+            </Link> */}
             {isAdmin && (
               <Link href="/admin" className="text-purple-600 hover:text-purple-800 px-3 py-2 text-sm font-medium">
                 Admin

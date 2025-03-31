@@ -10,6 +10,16 @@ import CreditsDisplay from '@/components/credits/CreditsDisplay';
 import { supabase } from '@/lib/supabase';
 import { Hourglass } from 'lucide-react';
 
+// Define UserProfile type based on AuthContext
+interface UserProfile {
+  id: string;
+  email?: string;
+  username?: string;
+  full_name?: string;
+  is_admin: boolean;
+  credits: number;
+}
+
 // Define global types for the window object
 declare global {
   interface Window {
@@ -30,14 +40,16 @@ const StreamDurationDisplay = ({
   onStart,
   onStop,
   isDisabled,
-  streamId
+  streamId,
+  user
 }: { 
   duration: number, 
   isActive: boolean,
   onStart: () => void,
   onStop: () => void,
   isDisabled: boolean,
-  streamId: string | null
+  streamId: string | null,
+  user?: UserProfile | null
 }) => {
   // Calculate hours, minutes, seconds
   const hours = Math.floor(duration / 60);
@@ -48,15 +60,17 @@ const StreamDurationDisplay = ({
     <Card className="mb-4 shadow-md bg-gradient-to-r from-purple-50 to-indigo-50">
       <CardContent className="py-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center">
-            <Hourglass className="h-5 w-5 text-indigo-500 mr-2" />
-            <span className="font-medium text-indigo-700">Stream Duration</span>
-          </div>
           {isActive && (
-            <div className="text-lg font-bold">
-              {hours > 0 ? `${hours}h ` : ''}
-              {minutes}m {seconds}s
-            </div>
+            <>
+              <div className="flex items-center">
+                <Hourglass className="h-5 w-5 text-indigo-500 mr-2" />
+                <span className="font-medium text-indigo-700">Stream Duration</span>
+              </div>
+              <div className="text-lg font-bold">
+                {hours > 0 ? `${hours}h ` : ''}
+                {minutes}m {seconds}s
+              </div>
+            </>
           )}
         </div>
         
@@ -89,8 +103,35 @@ const StreamDurationDisplay = ({
               </div>
             </div>
           ) : (
-            <div className="p-3 bg-gray-50 border border-gray-100 rounded-md mb-3">
-              <p className="text-sm text-gray-500 text-center">Start streaming to get a shareable URL</p>
+            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-md mb-3">
+              <p className="text-sm font-medium text-indigo-800 mb-1">Stream URL:</p>
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  readOnly
+                  value={user?.username ? 
+                    `${window.location.origin}/watch/${user.username.replace(/[^a-zA-Z0-9_-]/g, '_')}` :
+                    "URL will be available when you start streaming"}
+                  className="text-sm bg-white/70 border border-indigo-100 rounded p-2 w-full"
+                  onClick={(e) => user?.username && e.currentTarget.select()}
+                />
+                {user?.username && (
+                  <button
+                    className="ml-2 p-2 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
+                    title="Copy to clipboard"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/watch/${user.username?.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+                      alert("Stream URL copied to clipboard!");
+                    }}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-indigo-500 mt-1">This URL will be active once you start streaming</p>
             </div>
           )}
         </div>
@@ -680,9 +721,18 @@ export default function StreamPage() {
       wsRef.current.close();
     }
     
-    // We need to generate a proper stream ID
-    const newStreamId = "stream_" + Math.random().toString(36).substring(2, 15);
-    console.log(`Generated stream ID: ${newStreamId}`);
+    // Generate stream ID using username
+    let newStreamId;
+    if (user?.username) {
+      // Use username as the stream ID, but make sure it's URL-safe
+      // Remove any special characters and spaces
+      newStreamId = user.username.replace(/[^a-zA-Z0-9_-]/g, '_');
+    } else {
+      // Fallback to random ID if username is somehow not available
+      newStreamId = "stream_" + Math.random().toString(36).substring(2, 15);
+    }
+    
+    console.log(`Generated stream ID from username: ${newStreamId}`);
     
     // Use the environment variable for WebSocket URL
     const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
@@ -810,7 +860,7 @@ export default function StreamPage() {
       setStatus("Connection error");
       return null;
     }
-  }, [user?.id, sendFrames, setupMessageHandler, isModalStarting, isStreaming]);
+  }, [user?.id, user?.username, sendFrames, setupMessageHandler, isModalStarting, isStreaming]);
 
   // Clean up all WebSocket connections on component unmount
   useEffect(() => {
@@ -861,14 +911,6 @@ export default function StreamPage() {
       setIsModalStarting(true);
       setStartupProgress(0);
       
-      // Use a redundant timeout to ensure state updates are applied
-      setTimeout(() => {
-        if (!isModalStarting) {
-          console.log("⚠️ isModalStarting was still false after initial set, forcing update");
-          setIsModalStarting(true);
-        }
-      }, 100);
-      
       // Important: DON'T set streamStartTime here yet - wait until WebSocket is connected
       // This ensures we don't bill users during cold start period
       
@@ -889,15 +931,39 @@ export default function StreamPage() {
         });
       }, 1000);
       
+      // Request media access first before checking videoRef
       console.log("🎥 Requesting access to camera");
-      if (!videoRef.current) {
-        throw new Error("Video element not found");
+      let mediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        console.log("✅ Camera access granted");
+      } catch (mediaError) {
+        console.error("Failed to access camera:", mediaError);
+        throw new Error("Camera access denied: " + 
+          (mediaError instanceof Error ? mediaError.message : String(mediaError)));
       }
       
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      videoRef.current.srcObject = stream;
-      console.log("✅ Camera access granted");
+      // Now that we have the media stream, ensure the video element exists
+      // Allow multiple render cycles to complete before checking
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (videoRef.current) {
+          break;
+        }
+        console.log(`Video element not available, waiting (attempt ${attempt + 1}/3)...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       
+      // Final check for video element
+      if (!videoRef.current) {
+        // Stream needs to be stopped if we're stopping here
+        mediaStream.getTracks().forEach(track => track.stop());
+        throw new Error("Video element could not be found. Please refresh the page and try again.");
+      }
+      
+      // Now we can safely set the video source
+      videoRef.current.srcObject = mediaStream;
+      
+      // Set up event handlers
       videoRef.current.onloadedmetadata = () => {
         console.log("Video metadata loaded");
         if (videoRef.current) {
@@ -916,6 +982,7 @@ export default function StreamPage() {
         }
       };
       
+      // Add oncanplay to establish WebSocket after video is playable
       videoRef.current.oncanplay = () => {
         console.log("Video can play now");
         
@@ -1147,7 +1214,7 @@ export default function StreamPage() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
             <h2 className="text-xl font-bold text-purple-800 mb-3">Starting Dream Engine</h2>
             <p className="text-sm mb-4 text-center">
-              Please wait while we start up the AI engine. This typically takes <strong>30-45 seconds</strong> and only happens on the first stream.
+              Please wait while we start up the AI engine. This typically takes <strong>30-45 seconds</strong>.
             </p>
             
             <div className="w-full bg-gray-200 h-3 rounded-full mb-3">
@@ -1260,19 +1327,35 @@ export default function StreamPage() {
 
               {/* Video container with relative positioning */}
               <div className="relative w-full" style={{ paddingBottom: aspectRatio }}>
-                {/* Original webcam view */}
+                {/* Not streaming placeholder */}
+                {!isStreaming && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-r from-indigo-100 to-purple-100 rounded-md">
+                    <div className="text-center p-8 max-w-md">
+                      <div className="mb-4 text-indigo-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-lg font-semibold text-indigo-800 mb-2">Ready to Start Your Stream</h3>
+                      <p className="text-indigo-600 mb-4">Click the &quot;Start Streaming&quot; button to begin sharing your stylized video with the world!</p>
+                      <p className="text-sm text-indigo-500">Your stream will be available at a custom URL for others to watch.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Always render the video element, but only show it when streaming */}
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
                   className={`absolute inset-0 w-full h-full object-cover bg-black rounded-md ${
-                    showProcessedView ? 'hidden' : 'block'
+                    isStreaming && !showProcessedView ? 'block' : 'hidden'
                   }`}
                 />
                 
                 {/* Processed image view - Using the same approach as watch page */}
-                {showProcessedView && (
+                {isStreaming && showProcessedView && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black">
                     {imageData ? (
                       <div className="absolute inset-0 w-full h-full">
@@ -1348,6 +1431,7 @@ export default function StreamPage() {
             onStop={stopStream}
             isDisabled={isUpdating || isModalStarting}
             streamId={currentStreamIdRef.current}
+            user={user}
           />
           
           {/* Style Configuration Card */}
@@ -1363,21 +1447,6 @@ export default function StreamPage() {
           {/* Credits card */}
           <CreditsDisplay showTimeRemaining={true} />
           
-          {/* Status info */}
-          <Card className="mt-6 shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Stream Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm">{status}</p>
-              {error && (
-                <p className="text-sm text-red-600 mt-2">
-                  Error: {error}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Modal startup progress */}
           {isModalStarting && (
             <Card className="mt-6 shadow-md border-2 border-purple-500 animate-pulse">
@@ -1389,7 +1458,7 @@ export default function StreamPage() {
               <CardContent>
                 <div className="space-y-3">
                   <p className="text-sm font-medium">
-                    <strong>Please wait while we start up the AI engine.</strong> This typically takes 30-45 seconds and only happens on the first stream.
+                    <strong>Please wait while we start up the AI engine.</strong> This typically takes ~45 seconds.
                   </p>
                   <div className="flex items-center space-x-3">
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-purple-500"></div>
