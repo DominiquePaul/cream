@@ -1,39 +1,36 @@
 "use client";
 
-import { useState } from 'react';
-import { createClient } from '@/utils/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { User } from '@supabase/supabase-js'; // Import User type from supabase
+import type { User } from '@supabase/supabase-js';
+import { updateProfile } from '@/app/profile/actions';
 
-// Define interfaces for type safety
+// Profile interface definition
 interface Profile {
   id: string;
   username?: string | null;
   full_name?: string | null;
-  email?: string; // This usually comes from the user object, but kept for consistency if needed
+  email?: string;
   referral_source?: string | null;
   is_admin: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
-// Define props for the component
+// Props for the component
 interface ProfileFormProps {
   user: User;
-  profile: Profile | null; // Profile might be null if not created yet
+  profile: Profile | null;
 }
 
-const supabase = createClient();
-
 export default function ProfileForm({ user, profile }: ProfileFormProps) {
-  const router = useRouter();
   const { signOut } = useAuth();
-  const [loading, setLoading] = useState(false); // Loading only for updates now
+  const [isPending, startTransition] = useTransition();
+  
   // Initialize state from props
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [username, setUsername] = useState(profile?.username || '');
@@ -41,80 +38,38 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
   const [isAdmin] = useState(profile?.is_admin || false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
-  const updateProfile = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
     setMessage(null);
     
-    try {
-      // User is now passed as a prop
-      if (!user) throw new Error('User not available'); 
-      // Profile data is initialized from props
-      const initialUsername = profile?.username;
+    // Get the form data
+    const formData = new FormData(e.currentTarget);
+    
+    // Use a transition to avoid blocking the UI
+    startTransition(async () => {
+      // Call the server action with form data
+      const result = await updateProfile(formData);
       
-      // Validate username
-      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-        throw new Error('Username can only contain letters, numbers, and underscores');
+      if (result.success) {
+        setMessage(result.message || 'Profile updated successfully');
+      } else {
+        setError(result.error || 'Failed to update profile');
       }
-      
-      // Check if username is taken by another user only if it has changed
-      if (username && username !== initialUsername) {
-        const { data: existingUser, error: checkError } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('username', username)
-          .not('id', 'eq', user.id)
-          .maybeSingle(); // Use maybeSingle to handle 0 or 1 result
-
-        if (checkError) {
-          throw checkError;
-        }
-  
-        if (existingUser) {
-          throw new Error('Username is already taken');
-        }
-      }
-      
-      const updates = {
-        id: user.id,
-        full_name: fullName,
-        username,
-        referral_source: referralSource,
-        updated_at: new Date().toISOString(),
-        // Do not update is_admin from the form
-        // Do not update email from the form
-      };
-      
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .upsert(updates)
-        .eq('id', user.id);
-        
-      if (updateError) throw updateError;
-      
-      setMessage('Profile updated successfully');
-      // Refresh the page to show updated data
-      router.refresh();
-
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   const handleSignOut = async () => {
-    setLoading(true);
+    setSigningOut(true);
     try {
       await signOut();
       // The redirect is handled by the AuthContext
     } catch (err) {
       console.error('Error signing out:', err);
       setError('Failed to sign out. Please try again.');
-    } finally {
-      setLoading(false);
+      setSigningOut(false);
     }
   };
 
@@ -125,13 +80,13 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
         <CardDescription>Update your account information</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={updateProfile} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
-              value={user?.email || ''} // Use user prop for email
+              value={user?.email || ''}
               disabled
               className="bg-gray-50"
             />
@@ -139,12 +94,13 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="fullName">Full Name</Label>
+            <Label htmlFor="full_name">Full Name</Label>
             <Input
-              id="fullName"
+              id="full_name"
+              name="full_name"
               type="text"
-              value={fullName} // Use state variable
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFullName(e.target.value)}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
               placeholder="Your full name"
             />
           </div>
@@ -153,9 +109,10 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
             <Label htmlFor="username">Username</Label>
             <Input
               id="username"
+              name="username"
               type="text"
-              value={username} // Use state variable
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               placeholder="Choose a username"
             />
             <p className="text-xs text-gray-500">
@@ -164,14 +121,15 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="referralSource">How did you hear about us?</Label>
+            <Label htmlFor="referral_source">How did you hear about us?</Label>
             <Input
-              id="referralSource"
+              id="referral_source"
+              name="referral_source"
               type="text"
-              value={referralSource} // Use state variable
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReferralSource(e.target.value)}
+              value={referralSource}
+              onChange={(e) => setReferralSource(e.target.value)}
               placeholder="How did you hear about us?"
-              disabled={!!profile?.referral_source} // Disable based on initial profile prop
+              disabled={!!profile?.referral_source}
               className={profile?.referral_source ? "bg-gray-50" : ""}
             />
           </div>
@@ -188,14 +146,19 @@ export default function ProfileForm({ user, profile }: ProfileFormProps) {
             </div>
           )}
           
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Updating...' : 'Update Profile'}
+          <Button type="submit" className="w-full" disabled={isPending}>
+            {isPending ? 'Updating...' : 'Update Profile'}
           </Button>
         </form>
       </CardContent>
       <CardFooter className="flex justify-center border-t pt-4">
-        <Button variant="outline" onClick={handleSignOut} className="text-red-600">
-          Sign Out
+        <Button 
+          variant="outline" 
+          onClick={handleSignOut} 
+          className="text-red-600"
+          disabled={signingOut}
+        >
+          {signingOut ? 'Signing Out...' : 'Sign Out'}
         </Button>
       </CardFooter>
     </Card>
