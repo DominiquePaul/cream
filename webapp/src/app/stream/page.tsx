@@ -24,9 +24,19 @@ declare global {
 }
 
 // Create a new StreamDurationDisplay component
-const StreamDurationDisplay = ({ duration, isActive }: { duration: number, isActive: boolean }) => {
-  if (!isActive) return null;
-  
+const StreamDurationDisplay = ({ 
+  duration, 
+  isActive,
+  onStart,
+  onStop,
+  isDisabled
+}: { 
+  duration: number, 
+  isActive: boolean,
+  onStart: () => void,
+  onStop: () => void,
+  isDisabled: boolean
+}) => {
   // Calculate hours, minutes, seconds
   const hours = Math.floor(duration / 60);
   const minutes = Math.floor(duration % 60);
@@ -35,15 +45,38 @@ const StreamDurationDisplay = ({ duration, isActive }: { duration: number, isAct
   return (
     <Card className="mb-4 shadow-md bg-gradient-to-r from-purple-50 to-indigo-50">
       <CardContent className="py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center">
             <Hourglass className="h-5 w-5 text-indigo-500 mr-2" />
             <span className="font-medium text-indigo-700">Stream Duration</span>
           </div>
-          <div className="text-lg font-bold">
-            {hours > 0 ? `${hours}h ` : ''}
-            {minutes}m {seconds}s
-          </div>
+          {isActive && (
+            <div className="text-lg font-bold">
+              {hours > 0 ? `${hours}h ` : ''}
+              {minutes}m {seconds}s
+            </div>
+          )}
+        </div>
+        
+        {/* Stream control buttons */}
+        <div className="pt-2">
+          {!isActive ? (
+            <Button 
+              onClick={onStart}
+              disabled={isDisabled}
+              className="w-full"
+            >
+              Start Streaming
+            </Button>
+          ) : (
+            <Button 
+              onClick={onStop} 
+              variant="destructive"
+              className="w-full"
+            >
+              Stop Streaming
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -79,7 +112,6 @@ export default function StreamPage() {
   const streamStartTime = useRef<number | null>(null);
   const sessionId = useRef<string | null>(null);
   const [streamingDuration, setStreamingDuration] = useState(0);
-  const [creditsUsed, setCreditsUsed] = useState(0);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const { user, isAdmin, refreshUser } = useAuth();
@@ -388,10 +420,6 @@ export default function StreamPage() {
         // Update state with the more precise value
         setStreamingDuration(durationMinutes);
         
-        // Calculate credit usage (0.2 credits per minute)
-        const used = durationMinutes * 0.2;
-        setCreditsUsed(used);
-        
         // Real-time credit deductions - every whole minute
         const currentWholeMinute = Math.floor(durationMinutes);
         if (currentWholeMinute > lastDeductedMinute && sessionId.current) {
@@ -469,7 +497,7 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, user?.id, refreshUser]); // Remove streamStartTime.current to avoid triggering too often
+  }, [isStreaming, user?.id, refreshUser, user]);
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(() => {
@@ -745,7 +773,7 @@ export default function StreamPage() {
         const durationMs = now - streamStartTime.current;
         const durationMinutes = durationMs / (1000 * 60);
         
-        // Calculate total credits used
+        // Calculate total credits used for database record
         const totalCreditsUsed = durationMinutes * 0.2;
         
         // We've already deducted for whole minutes, so calculate partial minute credits
@@ -836,7 +864,6 @@ export default function StreamPage() {
     sessionId.current = null;
     streamStartTime.current = null;
     setStreamingDuration(0);
-    setCreditsUsed(0);
     setStatus("Stream stopped");
     
     // Close WebSocket connection
@@ -1037,16 +1064,7 @@ export default function StreamPage() {
             </CardContent>
 
             <CardFooter className="flex justify-between">
-              {!isStreaming ? (
-                <Button 
-                  onClick={startStream}
-                  disabled={!user || user.credits < 1}
-                >
-                  Start Streaming
-                </Button>
-              ) : (
-                <Button onClick={stopStream} variant="destructive">Stop Streaming</Button>
-              )}
+              {/* Buttons moved to StreamDurationDisplay component */}
             </CardFooter>
           </Card>
           
@@ -1058,7 +1076,10 @@ export default function StreamPage() {
           {/* Stream Duration Display */}
           <StreamDurationDisplay 
             duration={streamingDuration} 
-            isActive={isStreaming && streamStartTime.current !== null} 
+            isActive={isStreaming && streamStartTime.current !== null}
+            onStart={startStream}
+            onStop={stopStream}
+            isDisabled={!user || user.credits < 1}
           />
           
           {/* Credits card */}
