@@ -1,14 +1,13 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useRef, useState, useCallback } from "react";
 import AdminDebug from '@/components/AdminDebug';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import CreditsDisplay from '@/components/credits/CreditsDisplay';
 import { supabase } from '@/lib/supabase';
-import { Hourglass } from 'lucide-react';
 
 // Define UserProfile type based on AuthContext
 interface UserProfile {
@@ -57,103 +56,135 @@ const StreamDurationDisplay = ({
   const seconds = Math.floor((duration * 60) % 60);
   
   return (
-    <Card className="mb-4 shadow-md bg-gradient-to-r from-purple-50 to-indigo-50">
-      <CardContent className="py-4">
-        <div className="flex items-center justify-between mb-3">
+    <Card className="shadow-md border-0 overflow-hidden py-0">
+      <CardHeader className="pb-3 pt-2 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100">
+        <CardTitle className="text-base flex items-center text-purple-800">
+          <span className="mr-2">🎬</span>
+          Stream Controls
+        </CardTitle>
+        <CardDescription className="text-xs text-purple-600">
+          {isActive ? 'Monitor and control your live stream' : 'Start your stream when ready'}
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent className="p-4">
+        <div className="space-y-4">
+          {/* Stream state and duration display */}
           {isActive && (
-            <>
-              <div className="flex items-center">
-                <Hourglass className="h-5 w-5 text-indigo-500 mr-2" />
-                <span className="font-medium text-indigo-700">Stream Duration</span>
+            <div className="bg-purple-50 rounded-md p-3 border border-purple-100">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center">
+                  <div className="h-2.5 w-2.5 bg-green-500 rounded-full animate-pulse mr-2"></div>
+                  <span className="text-xs font-medium text-purple-800">LIVE</span>
+                </div>
+                <span className="text-xs text-purple-600">Started {Math.floor(duration)} mins ago</span>
               </div>
-              <div className="text-lg font-bold">
-                {hours > 0 ? `${hours}h ` : ''}
-                {minutes}m {seconds}s
+              
+              <div className="flex items-center justify-center py-2">
+                <div className="text-2xl font-bold text-purple-800 tabular-nums">
+                  {hours > 0 ? `${hours}:` : ''}
+                  {minutes.toString().padStart(2, '0')}:
+                  {seconds.toString().padStart(2, '0')}
+                </div>
               </div>
-            </>
+              
+              <div className="flex items-center justify-between text-xs text-purple-700 mt-1">
+                <span>Duration</span>
+                <span>Credits used: {(duration * 0.2).toFixed(2)}</span>
+              </div>
+            </div>
           )}
-        </div>
-        
-        {/* Stream URL display */}
-        <div className="mb-3">
-          {isActive && streamId ? (
-            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-md mb-3">
-              <p className="text-sm font-medium text-indigo-800 mb-1">Stream URL:</p>
-              <div className="flex items-center">
-                <input
-                  type="text"
-                  readOnly
-                  value={`${window.location.origin}/watch/${streamId}`}
-                  className="text-sm bg-white/70 border border-indigo-100 rounded p-2 w-full"
-                  onClick={(e) => e.currentTarget.select()}
-                />
-                <button
-                  className="ml-2 p-2 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
-                  title="Copy to clipboard"
-                  onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/watch/${streamId}`);
+          
+          {/* Stream URL display */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-700 block">
+              {isActive ? 'Active Stream URL:' : 'Your Stream URL:'}
+            </label>
+            <div className="flex items-center">
+              <input
+                type="text"
+                readOnly
+                value={isActive && streamId 
+                  ? `${window.location.origin}/watch/${streamId}`
+                  : user?.username 
+                    ? `${window.location.origin}/watch/${user.username.replace(/[^a-zA-Z0-9_-]/g, '_')}` 
+                    : "URL will be available when you start streaming"}
+                className="flex-grow px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-l-md"
+                onClick={(e) => (isActive || user?.username) && e.currentTarget.select()}
+              />
+              <button
+                className="px-2 py-2 bg-indigo-100 hover:bg-indigo-200 rounded-r-md text-indigo-700 border border-l-0 border-slate-200"
+                title="Copy to clipboard"
+                onClick={() => {
+                  const url = isActive && streamId 
+                    ? `${window.location.origin}/watch/${streamId}`
+                    : user?.username 
+                      ? `${window.location.origin}/watch/${user.username.replace(/[^a-zA-Z0-9_-]/g, '_')}` 
+                      : "";
+                  
+                  if (url) {
+                    navigator.clipboard.writeText(url);
                     alert("Stream URL copied to clipboard!");
-                  }}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                </button>
+                  }
+                }}
+                disabled={!isActive && !user?.username}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+            {!isActive && (
+              <p className="text-xs text-slate-500">This URL will be active once you start streaming</p>
+            )}
+          </div>
+          
+          {/* Stream action button */}
+          <div className="pt-2">
+            {!isActive ? (
+              <Button 
+                onClick={onStart}
+                disabled={isDisabled}
+                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-medium"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Start Streaming
+              </Button>
+            ) : (
+              <Button 
+                onClick={onStop} 
+                variant="destructive"
+                className="w-full"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                </svg>
+                Stop Streaming
+              </Button>
+            )}
+          </div>
+          
+          {/* Information about streaming */}
+          {!isActive && (
+            <div className="bg-slate-50 p-3 rounded-md border border-slate-200 text-xs text-slate-600 space-y-1.5">
+              <div className="flex items-start">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500 mr-1.5 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Streaming costs 0.2 credits per minute</span>
+              </div>
+              <div className="flex items-start">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500 mr-1.5 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Initial startup takes ~45 seconds</span>
               </div>
             </div>
-          ) : (
-            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-md mb-3">
-              <p className="text-sm font-medium text-indigo-800 mb-1">Stream URL:</p>
-              <div className="flex items-center">
-                <input
-                  type="text"
-                  readOnly
-                  value={user?.username ? 
-                    `${window.location.origin}/watch/${user.username.replace(/[^a-zA-Z0-9_-]/g, '_')}` :
-                    "URL will be available when you start streaming"}
-                  className="text-sm bg-white/70 border border-indigo-100 rounded p-2 w-full"
-                  onClick={(e) => user?.username && e.currentTarget.select()}
-                />
-                {user?.username && (
-                  <button
-                    className="ml-2 p-2 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
-                    title="Copy to clipboard"
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/watch/${user.username?.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
-                      alert("Stream URL copied to clipboard!");
-                    }}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-indigo-500 mt-1">This URL will be active once you start streaming</p>
-            </div>
-          )}
-        </div>
-        
-        {/* Stream control buttons */}
-        <div className="pt-2">
-          {!isActive ? (
-            <Button 
-              onClick={onStart}
-              disabled={isDisabled}
-              className="w-full"
-            >
-              Start Streaming
-            </Button>
-          ) : (
-            <Button 
-              onClick={onStop} 
-              variant="destructive"
-              className="w-full"
-            >
-              Stop Streaming
-            </Button>
           )}
         </div>
       </CardContent>
@@ -161,7 +192,6 @@ const StreamDurationDisplay = ({
   );
 };
 
-// After StreamDurationDisplay component definition
 // Create a StyleConfigCard component for the right sidebar
 const StyleConfigCard = ({
   currentStyle,
@@ -178,72 +208,131 @@ const StyleConfigCard = ({
   isStreaming: boolean;
   isUpdating: boolean;
 }) => {
-  // Predefined style examples
+  // Predefined style examples with categories
   const styleExamples = [
-    "A Monet-style impressionist painting",
-    "A dystopian yet colourful future",
-    "A Ghibli style anime",
-    "A watercolor illustration",
-    "A portrait of Donald Trump"
+    { category: "Art Styles", examples: [
+      "A Monet-style impressionist painting",
+      "A Van Gogh post-impressionist style",
+      "A Picasso cubist portrait",
+      "A Dali surrealist dreamscape"
+    ]},
+    { category: "Themes", examples: [
+      "A dystopian yet colorful future",
+      "A peaceful forest scene with magical elements",
+      "An underwater coral reef fantasy",
+      "A space exploration scene with nebulas"
+    ]},
+    { category: "Visual Styles", examples: [
+      "A Ghibli style anime scene",
+      "A watercolor illustration",
+      "A pixel art retro game style",
+      "A neon cyberpunk aesthetic"
+    ]}
   ];
 
   return (
-    <Card className="mt-4 mb-4 shadow-md bg-gradient-to-r from-blue-50 to-indigo-50">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-lg flex items-center">
+    <Card className="shadow-md border-0 overflow-hidden py-0">
+      <CardHeader className="pb-3 pt-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
+        <CardTitle className="text-base flex items-center text-blue-800">
           <span className="mr-2">✨</span>
           Style Configuration
         </CardTitle>
-        <CardDescription>
-          Customize how your stream looks
+        <CardDescription className="text-xs text-blue-600">
+          Customize how your stream appears to viewers
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      
+      <CardContent className="p-4">
         {isStreaming ? (
-          <>
-            <div className="p-3 bg-white/50 border border-blue-100 rounded-md mb-3">
-              <p className="text-sm font-medium text-blue-800">Current Style:</p>
-              <p className="text-sm text-blue-700 mt-1">{currentStyle}</p>
+          <div className="space-y-4">
+            {/* Current style display */}
+            <div className="p-3 bg-blue-50 rounded-md border border-blue-100">
+              <div className="flex items-center mb-1">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <p className="text-xs font-medium text-blue-700">Active Style</p>
+              </div>
+              <p className="text-sm text-blue-800 font-medium">{currentStyle}</p>
             </div>
             
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder="Enter a new style prompt..."
-                className="w-full px-3 py-2 border border-indigo-100 rounded-md bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                disabled={!isStreaming || isUpdating}
-              />
-              
-              <Button
-                onClick={onUpdateStyle}
-                disabled={!isStreaming || isUpdating || !customPrompt}
-                className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
-                variant="default"
-              >
-                {isUpdating ? 'Updating...' : 'Update Style'}
-              </Button>
-              
-              <div className="mt-2 p-3 bg-white/50 border border-blue-100 rounded-md">
-                <p className="text-xs font-medium text-blue-800 mb-1">Style examples:</p>
-                <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
-                  {styleExamples.map((example, index) => (
-                    <div 
-                      key={index}
-                      className="cursor-pointer text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded transition-colors"
-                      onClick={() => setCustomPrompt(example)}
-                    >
-                      {example}
-                    </div>
-                  ))}
-                </div>
+            {/* Style input and button */}
+            <div className="space-y-2.5">
+              <label htmlFor="stylePrompt" className="text-xs font-medium text-slate-700 block">
+                Enter a new style:
+              </label>
+              <div className="flex items-center space-x-2">
+                <input
+                  id="stylePrompt"
+                  type="text"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="Describe the style you want..."
+                  className="flex-grow px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
+                  disabled={isUpdating}
+                />
+                <Button
+                  onClick={onUpdateStyle}
+                  disabled={isUpdating || !customPrompt}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                  size="sm"
+                >
+                  {isUpdating ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Updating
+                    </span>
+                  ) : (
+                    'Apply'
+                  )}
+                </Button>
               </div>
             </div>
-          </>
+            
+            {/* Style examples with tabs */}
+            <div className="mt-3 border border-slate-200 rounded-md">
+              <div className="p-2 border-b border-slate-200">
+                <p className="text-xs font-medium text-slate-700">Style ideas (click to use):</p>
+              </div>
+              <div className="p-2 space-y-3 max-h-48 overflow-y-auto">
+                {styleExamples.map((category, categoryIndex) => (
+                  <div key={categoryIndex}>
+                    <p className="text-xs font-medium text-indigo-600 mb-1.5">{category.category}</p>
+                    <div className="space-y-1">
+                      {category.examples.map((example, index) => (
+                        <div 
+                          key={index}
+                          className="cursor-pointer text-xs text-slate-700 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded transition-colors flex items-center"
+                          onClick={() => setCustomPrompt(example)}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-slate-400 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          {example}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         ) : (
-          <div className="text-center text-sm text-gray-500 p-3">
-            Start streaming to configure style options
+          <div className="py-6 text-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="bg-slate-100 h-16 w-16 rounded-full flex items-center justify-center text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-700">Style Settings</p>
+                <p className="text-xs text-slate-500 mt-1">Start streaming to configure<br />how your stream will look</p>
+              </div>
+            </div>
           </div>
         )}
       </CardContent>
@@ -1208,39 +1297,84 @@ export default function StreamPage() {
     };
     
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-        <div className="bg-white/90 backdrop-blur-sm rounded-lg p-6 max-w-md shadow-2xl border-4 border-purple-500">
-          <div className="flex flex-col items-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-            <h2 className="text-xl font-bold text-purple-800 mb-3">Starting Dream Engine</h2>
-            <p className="text-sm mb-4 text-center">
-              Please wait while we start up the AI engine. This typically takes <strong>30-45 seconds</strong>.
-            </p>
-            
-            <div className="w-full bg-gray-200 h-3 rounded-full mb-3">
-              <div 
-                className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${startupProgress}%` }}
-              />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-2xl overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-4 text-white">
+            <h2 className="text-xl font-bold">Starting Dream Engine</h2>
+            <p className="text-sm text-indigo-100">This typically takes 30-45 seconds on first connection</p>
+          </div>
+          
+          <div className="p-6 space-y-6">
+            {/* Progress visualization */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-slate-700">Startup Progress</span>
+                <span className="text-indigo-600 font-medium">{Math.min(Math.round(startupProgress), 100)}%</span>
+              </div>
+              <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${startupProgress}%` }}
+                />
+              </div>
             </div>
             
-            <div className="space-y-1 text-sm text-gray-700 w-full">
-              <p className="flex items-center">
-                <span className="mr-2 text-green-500">✓</span> Camera ready
-              </p>
-              <p className="flex items-center">
-                <span className="mr-2 text-purple-500">⏳</span> Starting AI processor
-              </p>
-              <p className="flex items-center">
-                <span className="mr-2 text-blue-500">ℹ</span> You won&apos;t be charged during startup
-              </p>
+            {/* Status indicators */}
+            <div className="space-y-3">
+              <div className="flex items-start">
+                <div className="flex-shrink-0 h-5 w-5 flex items-center justify-center mt-0.5">
+                  <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-slate-800">Camera Ready</p>
+                  <p className="text-xs text-slate-500">Your webcam is activated and ready</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start">
+                <div className="flex-shrink-0 h-5 w-5 flex items-center justify-center mt-0.5">
+                  {startupProgress < 95 ? (
+                    <svg className="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-slate-800">AI Processor</p>
+                  <p className="text-xs text-slate-500">{startupProgress < 95 ? 'Initializing the dream engine...' : 'Dream engine is ready'}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start">
+                <div className="flex-shrink-0 h-5 w-5 flex items-center justify-center mt-0.5">
+                  <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-slate-800">Billing Notice</p>
+                  <p className="text-xs text-slate-500">You won&apos;t be charged during this startup period</p>
+                </div>
+              </div>
             </div>
             
-            <p className="mt-3 text-xs text-gray-500">Status: {status}</p>
+            {/* Status message */}
+            <div className="bg-slate-50 p-3 rounded-md border border-slate-200">
+              <p className="text-xs text-slate-600 font-medium">Current Status</p>
+              <p className="text-sm text-slate-800">{status}</p>
+            </div>
             
+            {/* Action button */}
             <button 
               onClick={cancelStartup}
-              className="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md transition-colors"
+              className="w-full mt-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-md transition-colors font-medium"
             >
               Cancel Startup
             </button>
@@ -1251,83 +1385,25 @@ export default function StreamPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Fixed overlay that's always visible during startup */}
       <StartupOverlay />
       
-      <h1 className="text-2xl font-bold mb-4">Stream Setup</h1>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <Card className="shadow-md">
-            <CardHeader className="pb-3">
-              <CardTitle>Live Stream</CardTitle>
-              <CardDescription>Start your live stream here</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* In-page loading overlay during modal startup */}
-              {isModalStarting && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-30 text-white text-center p-4">
-                  <div className="bg-white/90 p-6 rounded-lg border-2 border-purple-500 max-w-md shadow-lg text-gray-800">
-                    <div className="flex flex-col items-center">
-                      <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600 mb-4"></div>
-                      <h3 className="text-lg font-medium text-purple-800 mb-2">Starting Dream Engine</h3>
-                      <p className="mb-3 text-sm">This typically takes 30-45 seconds on the first connection.</p>
-                      <div className="w-full bg-gray-200 h-2 rounded-full mb-3">
-                        <div 
-                          className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out"
-                          style={{ width: `${startupProgress}%` }}
-                        />
-                      </div>
-                      <div className="space-y-1 text-sm text-gray-700 w-full">
-                        <p className="flex items-center">
-                          <span className="mr-2 text-green-500">✓</span> Camera ready
-                        </p>
-                        <p className="flex items-center">
-                          <span className="mr-2 text-purple-500">⏳</span> Starting AI processor
-                        </p>
-                        <p className="flex items-center">
-                          <span className="mr-2 text-blue-500">ℹ</span> You won&apos;t be charged during startup
-                        </p>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-2">Status: {status}</p>
-                      
-                      <button 
-                        onClick={() => {
-                          console.log("🛑 Cancelling stream startup from in-page overlay");
-                          
-                          // Clear any timers
-                          if (startupTimerRef.current) {
-                            clearInterval(startupTimerRef.current);
-                            startupTimerRef.current = null;
-                          }
-                          
-                          // Close WebSocket if it exists
-                          if (wsRef.current) {
-                            wsRef.current.close();
-                            wsRef.current = null;
-                          }
-                          
-                          // Reset all related states
-                          setIsModalStarting(false);
-                          setIsUpdating(false);
-                          setStatus("Stream initialization cancelled");
-                          setStartupProgress(0);
-                          setIsStreaming(false);
-                          streamStartTime.current = null;
-                        }}
-                        className="mt-3 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md text-sm transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Video container with relative positioning */}
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-indigo-900">Your Stream</h1>
+          <div className="flex items-center space-x-3">
+            {user && <CreditsDisplay compact={true} showTimeRemaining={false} />}
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Main content area - video stream */}
+          <div className="lg:col-span-8 space-y-6">
+            <Card className="shadow-lg border-0 overflow-hidden py-0">
+              {/* Video preview section */}
               <div className="relative w-full" style={{ paddingBottom: aspectRatio }}>
-                {/* Not streaming placeholder */}
+                {/* Video elements - Not streaming placeholder */}
                 {!isStreaming && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-r from-indigo-100 to-purple-100 rounded-md">
                     <div className="text-center p-8 max-w-md">
@@ -1336,14 +1412,13 @@ export default function StreamPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                       </div>
-                      <h3 className="text-lg font-semibold text-indigo-800 mb-2">Ready to Start Your Stream</h3>
-                      <p className="text-indigo-600 mb-4">Click the &quot;Start Streaming&quot; button to begin sharing your stylized video with the world!</p>
-                      <p className="text-sm text-indigo-500">Your stream will be available at a custom URL for others to watch.</p>
+                      <h3 className="text-lg font-semibold text-indigo-800 mb-2">Ready to Stream</h3>
+                      <p className="text-indigo-600 mb-4">Click the &quot;Start Streaming&quot; button to begin sharing your stylized video.</p>
                     </div>
                   </div>
                 )}
 
-                {/* Always render the video element, but only show it when streaming */}
+                {/* Video element */}
                 <video
                   ref={videoRef}
                   autoPlay
@@ -1354,7 +1429,7 @@ export default function StreamPage() {
                   }`}
                 />
                 
-                {/* Processed image view - Using the same approach as watch page */}
+                {/* Processed image view */}
                 {isStreaming && showProcessedView && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black">
                     {imageData ? (
@@ -1383,102 +1458,170 @@ export default function StreamPage() {
                   </div>
                 )}
                 
-                {/* Processing indicator overlay - adding from broadcast page */}
-                {false && !showProcessedView && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-20">
-                    <div className="text-white text-center">
-                      <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-white mb-2"></div>
-                      <p>AI Processing...</p>
-                    </div>
-                  </div>
-                )}
-                
                 {/* View toggle button */}
                 {isStreaming && (
-                  <div className="absolute top-2 right-2 z-10">
+                  <div className="absolute top-3 right-3 z-10">
                     <button
                       onClick={toggleView}
-                      className="px-3 py-2 bg-black/70 text-white text-sm rounded-md hover:bg-black/90 transition-colors"
+                      className="px-3 py-2 bg-black/70 hover:bg-black/80 text-white text-sm rounded-md transition-colors"
                     >
-                      {showProcessedView ? "Show Camera" : "Show what viewers are seeing"}
+                      {showProcessedView ? "Show Camera" : "Show Stylized View"}
                     </button>
                   </div>
                 )}
               </div>
-              
               <canvas ref={canvasRef} className="hidden" />
               
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600">
-                  {error}
-                </div>
-              )}
-            </CardContent>
-
-            <CardFooter className="flex justify-between">
-              {/* Buttons moved to StreamDurationDisplay component */}
-            </CardFooter>
-          </Card>
-        </div>
-        
-        {/* Right sidebar */}
-        <div className="lg:col-span-1">
-          {/* Stream Duration Display */}
-          <StreamDurationDisplay
-            duration={streamingDuration}
-            isActive={isStreaming}
-            onStart={startStream}
-            onStop={stopStream}
-            isDisabled={isUpdating || isModalStarting}
-            streamId={currentStreamIdRef.current}
-            user={user}
-          />
-          
-          {/* Style Configuration Card */}
-          <StyleConfigCard 
-            currentStyle={stylePrompt}
-            customPrompt={customPrompt}
-            setCustomPrompt={setCustomPrompt}
-            onUpdateStyle={updateStylePrompt}
-            isStreaming={isStreaming}
-            isUpdating={updatingPrompt}
-          />
-          
-          {/* Credits card */}
-          <CreditsDisplay showTimeRemaining={true} />
-          
-          {/* Modal startup progress */}
-          {isModalStarting && (
-            <Card className="mt-6 shadow-md border-2 border-purple-500 animate-pulse">
-              <CardHeader className="pb-2 bg-purple-50">
-                <CardTitle className="text-lg flex items-center text-purple-800">
-                  <span className="mr-2">⏳</span> Starting Dream Engine
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">
-                    <strong>Please wait while we start up the AI engine.</strong> This typically takes ~45 seconds.
-                  </p>
-                  <div className="flex items-center space-x-3">
-                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-purple-500"></div>
-                    <div className="h-2 flex-grow bg-slate-200 rounded">
-                      <div 
-                        className="h-full bg-purple-500 rounded transition-all duration-300 ease-out"
-                        style={{ width: `${startupProgress}%` }}
-                      />
+              {/* Stream controls panel */}
+              <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-t border-indigo-100">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center">
+                    {isStreaming && (
+                      <div className="flex items-center mr-4">
+                        <div className="h-3 w-3 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                        <span className="text-sm font-medium text-green-700">Live</span>
+                      </div>
+                    )}
+                    <div className="text-sm text-gray-600">
+                      {status}
                     </div>
                   </div>
-                  <div className="bg-purple-50 p-2 rounded border border-purple-200 text-xs text-slate-700 space-y-1">
-                    <p>• The camera is ready, but we&apos;re starting the AI processor</p>
-                    <p>• You will not be charged during this startup period</p>
-                    <p>• Once connected, streaming will begin automatically</p>
-                    <p className="pt-1 font-medium">Current status: {status}</p>
+                  
+                  <div>
+                    {!isStreaming ? (
+                      <Button 
+                        onClick={startStream}
+                        disabled={isUpdating || isModalStarting}
+                        className="bg-indigo-600 hover:bg-indigo-700"
+                        size="sm"
+                      >
+                        <span className="mr-2">⚡</span>
+                        Start Streaming
+                      </Button>
+                    ) : (
+                      <Button 
+                        onClick={stopStream} 
+                        variant="destructive"
+                        size="sm"
+                      >
+                        Stop Stream
+                      </Button>
+                    )}
                   </div>
                 </div>
-              </CardContent>
+              </div>
             </Card>
-          )}
+            
+            {/* Stream info panel */}
+            {isStreaming && (
+              <Card className="shadow-md py-0">
+                <CardHeader className="pb-2 pt-2">
+                  <CardTitle className="text-base flex items-center text-indigo-800">
+                    <span className="mr-2">📊</span> Stream Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Duration */}
+                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
+                      <div className="text-xs text-indigo-600 mb-1">Duration</div>
+                      <div className="font-semibold">
+                        {Math.floor(streamingDuration / 60) > 0 ? 
+                          `${Math.floor(streamingDuration / 60)}h ` : ''}
+                        {Math.floor(streamingDuration % 60)}m {Math.floor((streamingDuration * 60) % 60)}s
+                      </div>
+                    </div>
+                    
+                    {/* Credit Usage */}
+                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
+                      <div className="text-xs text-indigo-600 mb-1">Credit Usage</div>
+                      <div className="font-semibold">
+                        {(streamingDuration * 0.2).toFixed(2)} credits
+                      </div>
+                    </div>
+                    
+                    {/* Stream URL */}
+                    <div className="bg-indigo-50 rounded-md p-3 border border-indigo-100">
+                      <div className="text-xs text-indigo-600 mb-1">Stream URL</div>
+                      <div className="flex items-center">
+                        <input
+                          type="text"
+                          readOnly
+                          value={`${window.location.origin}/watch/${currentStreamIdRef.current || (user?.username?.replace(/[^a-zA-Z0-9_-]/g, '_') || '')}`}
+                          className="text-xs bg-white/70 border border-indigo-100 rounded p-1 flex-grow"
+                          onClick={(e) => e.currentTarget.select()}
+                        />
+                        <button
+                          className="ml-1 p-1 bg-indigo-100 hover:bg-indigo-200 rounded text-indigo-700"
+                          title="Copy to clipboard"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/watch/${currentStreamIdRef.current || (user?.username?.replace(/[^a-zA-Z0-9_-]/g, '_') || '')}`);
+                            alert("Stream URL copied to clipboard!");
+                          }}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Error display */}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600 shadow">
+                <div className="flex items-start">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{error}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Sidebar */}
+          <div className="lg:col-span-4 space-y-4">
+            {/* Stream Controls */}
+            <StreamDurationDisplay
+              duration={streamingDuration}
+              isActive={isStreaming}
+              onStart={startStream}
+              onStop={stopStream}
+              isDisabled={isUpdating || isModalStarting}
+              streamId={currentStreamIdRef.current}
+              user={user}
+            />
+            
+            {/* Style Configuration Card */}
+            <StyleConfigCard
+              currentStyle={stylePrompt}
+              customPrompt={customPrompt}
+              setCustomPrompt={setCustomPrompt}
+              onUpdateStyle={updateStylePrompt}
+              isStreaming={isStreaming}
+              isUpdating={updatingPrompt}
+            />
+            
+            {/* Credits display */}
+            {user && (
+              <Card className="shadow-md border-0 overflow-hidden py-0">
+                <CardHeader className="pb-2 pt-2 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-emerald-100">
+                  <CardTitle className="text-base flex items-center text-emerald-800">
+                    <span className="mr-2">💎</span>
+                    Credits
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <CreditsDisplay showTimeRemaining={true} />
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
       </div>
       
