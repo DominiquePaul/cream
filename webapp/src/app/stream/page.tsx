@@ -898,9 +898,10 @@ export default function StreamPage() {
                     <p>Prompt examples:</p>
                     <ul className="list-disc pl-4">
                       <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Monet-style impressionist painting")}>A Monet-style impressionist painting</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A cubist painting in the style of Picasso")}>A cubist painting in the style of Picasso</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A modern pop art masterpiece")}>A modern pop art masterpiece</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A dystopian yet colourful future")}>A dystopian yet colourful future</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Ghibli style anime")}>A Ghibli style anime</li>
                       <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A watercolor illustration")}>A watercolor illustration</li>
+                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A potrait of Donald Trump")}>A potrait of Donald Trump</li>
                     </ul>
                   </div>
                 </div>
