@@ -77,7 +77,7 @@ export default function StreamHistory() {
         <div className="text-center py-8 border-2 border-dashed border-muted rounded-lg bg-muted/10">
           <PlayCircle className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
           <p className="text-muted-foreground">You haven&apos;t streamed yet</p>
-          <Link href="/stream/new">
+          <Link href="/stream">
             <Button className="mt-4">
               Start your first stream <ArrowUpRight className="ml-2 h-4 w-4" />
             </Button>
