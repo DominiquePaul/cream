@@ -22,9 +22,9 @@ export async function createClient() {
             // Cookies must be awaited in Next.js 15
             const cookieStore = await cookies()
             cookieStore.set({ name, value, ...options })
-          } catch (err) {
+          } catch {
             // Silently ignore errors when trying to set cookies in Server Components
-            // console.error('Error setting cookie:', err)
+            // console.error('Error setting cookie')
           }
         },
         async remove(name: string, options: CookieOptions) {
@@ -32,9 +32,9 @@ export async function createClient() {
             // Cookies must be awaited in Next.js 15
             const cookieStore = await cookies()
             cookieStore.delete({ name, ...options })
-          } catch (err) {
+          } catch {
             // Silently ignore errors when trying to delete cookies in Server Components
-            // console.error('Error deleting cookie:', err)
+            // console.error('Error deleting cookie')
           }
         },
       },

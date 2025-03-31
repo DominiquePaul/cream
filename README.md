@@ -11,7 +11,7 @@
 | Thursday | ... |
 | Friday | (a) Deploy websocket server on modal.com for autoscaling ✅</br>(b) apply image transformations to streamed images with H100 GPU on modal ✅|
 | Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation ✅</br>(c) improve speed of image transformations ✅</br> |
-| Sunday | (a) Integrate lightning diffusion code into modal.com deployment ✅</br>(b) add registration/login for streamers </br>(c) streamers can purchase credits for streaming via stripe checkout </br>(d) Prettify app </br>(e) Create docker image to run stream from raspberry pi </br>(f) [*buffer for anything else*] |
+| Sunday | (a) Integrate lightning diffusion code into modal.com deployment ✅</br>(b) add registration/login for streamers ✅</br>(c) streamers can purchase credits for streaming via stripe checkout </br>(d) Add real screenshots & prettify app </br>(e) Create docker image to run stream from raspberry pi </br> |
 
 
 - Streamer can see stream output of themselves via a toggle

@@ -106,7 +106,7 @@ export default function Home() {
               </div>
             </CardContent>
             <CardFooter>
-              <Link href="/broadcast" className="w-full">
+              <Link href="/stream" className="w-full">
                 <Button className="w-full">Start Streaming</Button>
               </Link>
             </CardFooter>

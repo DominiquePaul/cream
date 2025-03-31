@@ -646,7 +646,7 @@ export default function StreamPage() {
                       onLoad={() => {
                         console.log("✅ Processed image loaded successfully");
                       }}
-                      onError={(err) => {
+                      onError={(err: React.SyntheticEvent<HTMLImageElement, Event>) => {
                         console.error("❌ Processed image failed to load", err);
                       }}
                     />
@@ -674,6 +674,16 @@ export default function StreamPage() {
                     </button>
                   </div>
                 )}
+              </div>
+            )}
+            
+            {/* Processing indicator overlay - adding from broadcast page */}
+            {false && !showProcessedView && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 z-20">
+                <div className="text-white text-center">
+                  <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-white mb-2"></div>
+                  <p>AI Processing...</p>
+                </div>
               </div>
             )}
             
