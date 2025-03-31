@@ -83,6 +83,96 @@ const StreamDurationDisplay = ({
   );
 };
 
+// After StreamDurationDisplay component definition
+// Create a StyleConfigCard component for the right sidebar
+const StyleConfigCard = ({
+  currentStyle,
+  customPrompt,
+  setCustomPrompt,
+  onUpdateStyle,
+  isStreaming,
+  isUpdating
+}: {
+  currentStyle: string;
+  customPrompt: string;
+  setCustomPrompt: (value: string) => void;
+  onUpdateStyle: () => void;
+  isStreaming: boolean;
+  isUpdating: boolean;
+}) => {
+  // Predefined style examples
+  const styleExamples = [
+    "A Monet-style impressionist painting",
+    "A dystopian yet colourful future",
+    "A Ghibli style anime",
+    "A watercolor illustration",
+    "A portrait of Donald Trump"
+  ];
+
+  return (
+    <Card className="mt-4 mb-4 shadow-md bg-gradient-to-r from-blue-50 to-indigo-50">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg flex items-center">
+          <span className="mr-2">✨</span>
+          Style Configuration
+        </CardTitle>
+        <CardDescription>
+          Customize how your stream looks
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isStreaming ? (
+          <>
+            <div className="p-3 bg-white/50 border border-blue-100 rounded-md mb-3">
+              <p className="text-sm font-medium text-blue-800">Current Style:</p>
+              <p className="text-sm text-blue-700 mt-1">{currentStyle}</p>
+            </div>
+            
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="Enter a new style prompt..."
+                className="w-full px-3 py-2 border border-indigo-100 rounded-md bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                disabled={!isStreaming || isUpdating}
+              />
+              
+              <Button
+                onClick={onUpdateStyle}
+                disabled={!isStreaming || isUpdating || !customPrompt}
+                className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
+                variant="default"
+              >
+                {isUpdating ? 'Updating...' : 'Update Style'}
+              </Button>
+              
+              <div className="mt-2 p-3 bg-white/50 border border-blue-100 rounded-md">
+                <p className="text-xs font-medium text-blue-800 mb-1">Style examples:</p>
+                <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
+                  {styleExamples.map((example, index) => (
+                    <div 
+                      key={index}
+                      className="cursor-pointer text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded transition-colors"
+                      onClick={() => setCustomPrompt(example)}
+                    >
+                      {example}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="text-center text-sm text-gray-500 p-3">
+            Start streaming to configure style options
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 export default function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1019,56 +1109,12 @@ export default function StreamPage() {
                   {error}
                 </div>
               )}
-              
-              {isStreaming && (
-                <div className="space-y-2">
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <p className="text-sm font-medium">Current Style:</p>
-                    <p className="text-sm">{stylePrompt}</p>
-                  </div>
-                  
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={customPrompt}
-                      onChange={(e) => setCustomPrompt(e.target.value)}
-                      placeholder="Enter a new style prompt..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
-                      disabled={!isStreaming || updatingPrompt}
-                    />
-                    <button
-                      onClick={updateStylePrompt}
-                      disabled={!isStreaming || updatingPrompt || !customPrompt}
-                      className={`px-4 py-2 rounded-md ${
-                        !isStreaming || updatingPrompt || !customPrompt
-                          ? 'bg-gray-300 cursor-not-allowed'
-                          : 'bg-blue-500 hover:bg-blue-600 text-white'
-                      }`}
-                    >
-                      {updatingPrompt ? 'Updating...' : 'Update Style'}
-                    </button>
-                  </div>
-                  
-                  <div className="text-xs text-gray-500">
-                    <p>Prompt examples:</p>
-                    <ul className="list-disc pl-4">
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Monet-style impressionist painting")}>A Monet-style impressionist painting</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A dystopian yet colourful future")}>A dystopian yet colourful future</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A Ghibli style anime")}>A Ghibli style anime</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A watercolor illustration")}>A watercolor illustration</li>
-                      <li className="cursor-pointer hover:underline" onClick={() => setCustomPrompt("A potrait of Donald Trump")}>A potrait of Donald Trump</li>
-                    </ul>
-                  </div>
-                </div>
-              )}
             </CardContent>
 
             <CardFooter className="flex justify-between">
               {/* Buttons moved to StreamDurationDisplay component */}
             </CardFooter>
           </Card>
-          
-          {/* ... other existing cards ... */}
         </div>
         
         {/* Right sidebar */}
@@ -1080,6 +1126,16 @@ export default function StreamPage() {
             onStart={startStream}
             onStop={stopStream}
             isDisabled={!user || user.credits < 1}
+          />
+          
+          {/* Style Configuration Card */}
+          <StyleConfigCard 
+            currentStyle={stylePrompt}
+            customPrompt={customPrompt}
+            setCustomPrompt={setCustomPrompt}
+            onUpdateStyle={updateStylePrompt}
+            isStreaming={isStreaming}
+            isUpdating={updatingPrompt}
           />
           
           {/* Credits card */}
@@ -1099,8 +1155,6 @@ export default function StreamPage() {
               )}
             </CardContent>
           </Card>
-          
-          {/* ... other status cards ... */}
         </div>
       </div>
       
