@@ -87,6 +87,9 @@ export default function WatchPage() {
     
     // Use the environment variable for WebSocket URL
     const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
+    if (!wsUrl) {
+      throw new Error('NEXT_PUBLIC_WEBSOCKET_URL environment variable is not set');
+    }
     
     // Format the URL with the proper path pattern for Modal
     // Remove the 'ws/' prefix to avoid double 'ws/ws/'

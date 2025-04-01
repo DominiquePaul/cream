@@ -1022,6 +1022,9 @@ export default function StreamPage() {
     
     // Use the environment variable for WebSocket URL
     const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
+    if (!wsUrl) {
+      throw new Error('NEXT_PUBLIC_WEBSOCKET_URL environment variable is not set');
+    }
     
     // With Modal, the streamId is part of the URL path
     // Remove the 'ws/' prefix to avoid double 'ws/ws/'
