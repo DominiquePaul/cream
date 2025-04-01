@@ -11,24 +11,22 @@
 | Thursday | ... |
 | Friday | (a) Deploy websocket server on modal.com for autoscaling ✅</br>(b) apply image transformations to streamed images with H100 GPU on modal ✅|
 | Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation ✅</br>(c) improve speed of image transformations ✅</br> |
-| Sunday | (a) Integrate lightning diffusion code into modal.com deployment ✅</br>(b) add registration/login for streamers ✅</br>(c) streamers can purchase credits for streaming via stripe checkout </br>(d) Add real screenshots & prettify app </br>(e) Create docker image to run stream from raspberry pi </br> |
+| Sunday | (a) Integrate lightning diffusion code into modal.com deployment ✅</br>(b) add registration/login for streamers ✅</br>(c) streamers can purchase credits for streaming via stripe checkout ✅</br>(d) Add real screenshots & prettify app ✅</br></br> |
 
 
-- Streamer can see stream output of themselves via a toggle
-- Streamer can see number of viewers
-- Streamer can enable users to submit style requests and either approve them or set them to auto-approve.
-- Add some kind of admin dashboard for user analytics
-  - How many streams created
-  - How many different IPs tuned in
-  - Most concurrent viewers
+# Features next up:
 
-### Ideas for the near future
+- [ ] Add chat to each stream
+- [ ] Streamers can see number of stream viewers
 
-- [ ] Add audio streaming
-- [ ] Livestream chat
-- [ ] Save stream input and output images. -> This could make cool timelapses
+### Ideas for future roadmap
 
+- User can stream from raspberry pi.
+- Add audio streaming
+- Save stream input and output images. -> This could make cool timelapses
+- Admin dashboard
 
-### Ideas for the not-so-near future to keep in mind.
+### Some general thoughts on the future of this project
+
 - Some users might want to just use it as middleware and stream to other platforms (X, youtube, twitch)
 - Would be cool if you could stream with multiple cameras at the same time. Could this even enable streaming effects that wouldn't be possible with just one camera?
