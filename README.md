@@ -1,32 +1,41 @@
-# DreamStream - AI-stylised Video streaming
+# DreamStream - AI-stylised Video Streaming Platform
 
+[![Website](https://img.shields.io/website?label=thedreamstream.io&style=for-the-badge&url=https%3A%2F%2Fwww.thedreamstream.io%2F)](https://www.thedreamstream.io/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-blue?style=for-the-badge&logo=github)](https://github.com/DominiquePaul/dreamstream)
 
-### Timeline:
+DreamStream is a cutting-edge video streaming platform that leverages AI technology to stylize live video streams in real-time. This innovative platform allows users to create and share unique, AI-generated video content, revolutionizing the way we interact with live streaming.
 
-| Date | Goal |
-|------|-----------|
-| Monday | (a) Understand how well img2img could work and which network to use ✅</br>(b) Write simple class/function for style transfer ✅ |
-| Tuesday | (a) design infrastructure for streaming ✅</br>(b) minimal website with streamer and viewer page ✅</br>(c) deploy website to live URL and set up CD ✅</br>(d) deploy vanilla webscoket server ✅</br>(e) Users can create and view livestream via website ✅ |
+Check it out at [www.thedreamstream.io](https://www.thedreamstream.io/)!
+
+### 1-Week Development Sprint Timeline
+
+The following timeline outlines the key milestones achieved during our 1-week development sprint:
+
+| Date | Goals Achieved |
+|------|-----------------|
+| Monday | (a) Researched img2img technology and selected a suitable network for implementation ✅</br>(b) Developed a basic class for style transfer ✅ |
+| Tuesday | (a) Designed the infrastructure for live streaming ✅</br>(b) Created a minimal website with streamer and viewer interfaces ✅</br>(c) Deployed the website to a live URL and set up continuous deployment ✅</br>(d) Deployed a basic WebSocket server ✅</br>(e) Enabled users to create and view live streams via the website ✅ |
 | Wednesday | ... |
 | Thursday | ... |
-| Friday | (a) Deploy websocket server on modal.com for autoscaling ✅</br>(b) apply image transformations to streamed images with H100 GPU on modal ✅|
-| Saturday | (a) Remove black patches between frames in stream ✅</br>(b) Users can specify prompt for image transformation ✅</br>(c) improve speed of image transformations ✅</br> |
-| Sunday | (a) Integrate lightning diffusion code into modal.com deployment ✅</br>(b) add registration/login for streamers ✅</br>(c) streamers can purchase credits for streaming via stripe checkout ✅</br>(d) Add real screenshots & prettify app ✅</br></br> |
+| Friday | (a) Deployed the WebSocket server on modal.com for autoscaling capabilities ✅</br>(b) Integrated image transformations using H100 GPU on modal.com ✅ |
+| Saturday | (a) Removed black patches between frames in the stream ✅</br>(b) Allowed users to specify prompts for image transformations ✅</br>(c) Optimized the speed of image transformations ✅ |
+| Sunday | (a) Integrated lightning diffusion code into the modal.com deployment ✅</br>(b) Implemented registration and login for streamers ✅</br>(c) Enabled streamers to purchase credits for streaming via Stripe checkout ✅</br>(d) Added real screenshots and enhanced the app's UI ✅ |
 
+# 🚀 Features Roadmap
 
-# Features next up:
+### Upcoming Features
 
-- [ ] Add chat to each stream
-- [ ] Streamers can see number of stream viewers
+- [ ] Implement real-time chat functionality for each stream
+- [ ] Display the number of viewers for each stream to streamers
 
-### Ideas for future roadmap
+### Future Development Ideas
 
-- User can stream from raspberry pi.
-- Add audio streaming
-- Save stream input and output images. -> This could make cool timelapses
-- Admin dashboard
+- Enable live streaming from raspberry pi devices
+- Introduce audio streaming capabilities
+- Store input and output images from streams for potential timelapse creation
+- Develop an admin dashboard for managing the platform
 
-### Some general thoughts on the future of this project
+### Long-term Vision
 
-- Some users might want to just use it as middleware and stream to other platforms (X, youtube, twitch)
-- Would be cool if you could stream with multiple cameras at the same time. Could this even enable streaming effects that wouldn't be possible with just one camera?
+- Allow users to utilize the platform as middleware for streaming to other platforms (e.g., YouTube, Twitch)
+- Explore the possibility of supporting multiple camera streams simultaneously, enabling unique streaming effects not achievable with a single camera
