@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import Script from "next/script";
 import ErrorBoundaryWrapper from "@/components/ErrorBoundaryWrapper";
 
@@ -109,6 +110,7 @@ export default function RootLayout({
                 {children}
               </main>
             </ErrorBoundaryWrapper>
+            <Footer />
           </div>
         </AuthProvider>
       </body>
