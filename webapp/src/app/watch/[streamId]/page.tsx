@@ -86,7 +86,7 @@ export default function WatchPage() {
     console.log(`Setting up WebSocket to watch stream: ${streamId}`);
     
     // Use the environment variable for WebSocket URL
-    const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
+    const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
     
     // Format the URL with the proper path pattern for Modal
     // Remove the 'ws/' prefix to avoid double 'ws/ws/'

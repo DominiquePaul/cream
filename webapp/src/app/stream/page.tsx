@@ -1021,7 +1021,7 @@ export default function StreamPage() {
     console.log(`Generated stream ID from username: ${newStreamId}`);
     
     // Use the environment variable for WebSocket URL
-    const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8080';
+    const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
     
     // With Modal, the streamId is part of the URL path
     // Remove the 'ws/' prefix to avoid double 'ws/ws/'
