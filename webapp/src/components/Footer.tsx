@@ -28,9 +28,9 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/about" className="text-sm text-gray-600 hover:text-gray-900">
-                  About Us
-                </Link>
+                <a href="https://x.com/DominiqueCAPaul" className="text-sm text-gray-600 hover:text-gray-900">
+                  Follow me on X for product updates
+                </a>
               </li>
             </ul>
           </div>
