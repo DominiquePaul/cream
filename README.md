@@ -7,6 +7,8 @@ DreamStream is a cutting-edge video streaming platform that leverages AI technol
 
 Check it out at [www.thedreamstream.io](https://www.thedreamstream.io/)!
 
+[![Homepage Screenshot](readme_images/homepage_screenshot.png)](https://www.thedreamstream.io/)
+
 ### 1-Week Development Sprint Timeline
 
 The following timeline outlines the key milestones achieved during our 1-week development sprint:
@@ -43,9 +45,5 @@ The following timeline outlines the key milestones achieved during our 1-week de
 ### Product Showcase
 
 Here's a glimpse of what DreamStream can do:
-
-[![Homepage Screenshot](readme_images/homepage_screenshot.png)](https://www.thedreamstream.io/)
-
-**Stream Example**
 
 [![Stream Example Original](readme_images/stream_example_original.png)](https://www.thedreamstream.io/) → **Adjusts to the structure of people and movements in your video** → [![Stream Example Augmented](readme_images/stream_example_augmented.png)](https://www.thedreamstream.io/)
