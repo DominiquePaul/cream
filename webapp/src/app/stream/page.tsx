@@ -517,6 +517,8 @@ export default function StreamPage() {
   const [stylePrompt, setStylePrompt] = useState("A painting in the style of van Gogh's 'Starry Night'");
   const [customPrompt, setCustomPrompt] = useState("");
   const [updatingPrompt, setUpdatingPrompt] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   
   // Credit tracking state
   const streamStartTime = useRef<number | null>(null);
@@ -1600,12 +1602,95 @@ export default function StreamPage() {
     );
   };
 
+  // Handle fullscreen change events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullScreen = () => {
+    if (!fullscreenContainerRef.current) return;
+    
+    if (!isFullScreen) {
+      if (fullscreenContainerRef.current.requestFullscreen) {
+        fullscreenContainerRef.current.requestFullscreen()
+          .then(() => setIsFullScreen(true))
+          .catch(err => console.error("Error attempting to enable fullscreen:", err));
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen()
+          .then(() => setIsFullScreen(false))
+          .catch(err => console.error("Error attempting to exit fullscreen:", err));
+      }
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Fixed overlay that's always visible during startup */}
-      <StartupOverlay />
+    <>
+      {isFullScreen && (
+        <div 
+          ref={fullscreenContainerRef}
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+        >
+          {isStreaming && (
+            <div className="absolute inset-0 w-full h-full">
+              {showProcessedView ? (
+                <div className="absolute inset-0 w-full h-full">
+                  {imageData && (
+                    <Image
+                      src={imageData}
+                      alt="Processed stream"
+                      fill
+                      style={{
+                        objectFit: 'contain'
+                      }}
+                      onLoad={() => {
+                        console.log("✅ Processed image loaded successfully");
+                      }}
+                      onError={(err: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                        console.error("❌ Processed image failed to load", err);
+                      }}
+                    />
+                  )}
+                </div>
+              ) : (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-contain"
+                />
+              )}
+              <button
+                onClick={toggleFullScreen}
+                className="absolute top-2 right-2 bg-black/70 text-white p-2 rounded-md hover:bg-black/90 transition-colors"
+                aria-label="Exit fullscreen"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
+                  <path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
+                  <path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
+                  <path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className={`container mx-auto px-4 py-6 ${isFullScreen ? 'hidden' : ''}`}>
+        {/* Fixed overlay that's always visible during startup */}
+        <StartupOverlay />
+        
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-indigo-900">Your Stream</h1>
           <div className="flex items-center space-x-3">
@@ -1645,7 +1730,11 @@ export default function StreamPage() {
           <div className="lg:col-span-8 space-y-6">
             <Card className="shadow-lg border-0 overflow-hidden py-0">
               {/* Video preview section */}
-              <div className="relative w-full" style={{ paddingBottom: aspectRatio }}>
+              <div 
+                ref={!isFullScreen ? fullscreenContainerRef : null}
+                className="relative w-full" 
+                style={{ paddingBottom: aspectRatio }}
+              >
                 {/* Video elements - Not streaming placeholder */}
                 {!isStreaming && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-r from-indigo-100 to-purple-100 rounded-md">
@@ -1703,12 +1792,24 @@ export default function StreamPage() {
                 
                 {/* View toggle button */}
                 {isStreaming && (
-                  <div className="absolute top-3 right-3 z-10">
+                  <div className="absolute top-3 right-3 z-10 flex gap-2">
                     <button
                       onClick={toggleView}
                       className="px-3 py-2 bg-black/70 hover:bg-black/80 text-white text-sm rounded-md transition-colors"
                     >
                       {showProcessedView ? "Show Camera" : "Show Stylized View"}
+                    </button>
+                    <button
+                      onClick={toggleFullScreen}
+                      className="p-2 bg-black/70 text-white rounded-md hover:bg-black/90 transition-colors"
+                      aria-label="Enter fullscreen"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                      </svg>
                     </button>
                   </div>
                 )}
@@ -1767,6 +1868,6 @@ export default function StreamPage() {
       
       {/* Admin debug section if needed */}
       {isAdmin && <AdminDebug />}
-    </div>
+    </>
   );
 } 
