@@ -482,6 +482,7 @@ const CreditPurchaseButton = () => {
 };
 
 export default function StreamPage() {
+  const { user, isAdmin, refreshUser } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -496,6 +497,15 @@ export default function StreamPage() {
   const currentStreamIdRef = useRef<string | null>(null);
   const frameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingTimesRef = useRef<number[]>([]);
+  
+  // Add authentication check
+  useEffect(() => {
+    if (!user) {
+      setError("You must be logged in to stream");
+      setStatus("Authentication required");
+      return;
+    }
+  }, [user]);
   
   // Image display states (adopting from watch page)
   const [imageData, setImageData] = useState<string | null>(null); // Current displayed image
@@ -514,8 +524,6 @@ export default function StreamPage() {
   const [streamingDuration, setStreamingDuration] = useState(0);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  const { user, isAdmin, refreshUser } = useAuth();
-
   // Add this new state to track Modal container startup
   const [isModalStarting, setIsModalStarting] = useState(false);
   const [startupProgress, setStartupProgress] = useState(0);
@@ -951,10 +959,16 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, user?.id, refreshUser]); // Remove wsRef.current?.readyState
+  }, [isStreaming, user?.id, refreshUser, user]); // Added user to dependencies
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(async () => {
+    // Add authentication check
+    if (!user?.id) {
+      setError("Authentication required to start streaming");
+      return;
+    }
+
     // Create a stream session in the database
     const startStreamSession = async () => {
       try {
@@ -962,12 +976,12 @@ export default function StreamPage() {
         // streamStartTime is already set in the ws.onopen handler
         // This ensures credits are deducted at the correct rate (once per minute)
         
-        // Create a new stream session
+        // Create a new stream session with validated user ID
         const { data, error } = await supabase
           .from('stream_sessions')
           .insert({
-            profile_id: user?.id,
-            start_time: new Date(streamStartTime.current!).toISOString(), // Add non-null assertion
+            profile_id: user.id, // Now we know this is valid
+            start_time: new Date(streamStartTime.current!).toISOString(),
             status: 'active'
           })
           .select()
@@ -975,6 +989,7 @@ export default function StreamPage() {
         
         if (error) {
           console.error("Error creating stream session:", error);
+          setError("Failed to create stream session");
           return;
         }
         
@@ -983,6 +998,7 @@ export default function StreamPage() {
         console.log("Created stream session with ID:", data.id);
       } catch (err) {
         console.error("Error creating stream session:", err);
+        setError("Failed to create stream session");
       }
     };
     
@@ -1175,6 +1191,12 @@ export default function StreamPage() {
 
   const startStream = async () => {
     try {
+      // Add authentication check
+      if (!user) {
+        setError("You must be logged in to stream");
+        return;
+      }
+
       console.log("🔄 startStream called - initializing stream setup");
       
       // Clear any previous errors

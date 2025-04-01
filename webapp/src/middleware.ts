@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/middleware'
 
 // Define protected and auth routes
-const protectedPaths = ['/profile']
+const protectedPaths = ['/profile', '/stream']
 const authPaths = ['/auth/login', '/auth/signup']
 const isProtectedPath = (path: string) => protectedPaths.some(pp => path.startsWith(pp))
 const isAuthPath = (path: string) => authPaths.some(ap => path.startsWith(ap))
@@ -69,6 +69,11 @@ export async function middleware(request: NextRequest) {
   if (!user && isProtectedPath(path)) {
     const redirectUrl = new URL('/auth/login', request.url)
     redirectUrl.searchParams.set('next', path)
+    
+    // Add a message for stream page redirects
+    if (path.startsWith('/stream')) {
+      redirectUrl.searchParams.set('message', 'Please login or register to start streaming')
+    }
     
     const redirectResponse = NextResponse.redirect(redirectUrl)
     // Add tracking headers to detect loops

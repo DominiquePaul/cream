@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [redirectInProgress, setRedirectInProgress] = useState(false);
   const searchParams = useSearchParams();
   const nextUrl = searchParams?.get('next') || '/';
+  const message = searchParams?.get('message');
   const { session, refreshUser } = useAuth();
 
   // Check if user is already logged in
@@ -77,6 +78,11 @@ export default function LoginPage() {
           <CardDescription>Enter your credentials to access your account</CardDescription>
         </CardHeader>
         <CardContent>
+          {message && (
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-yellow-700 text-sm">
+              {message}
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
