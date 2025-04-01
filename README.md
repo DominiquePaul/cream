@@ -39,3 +39,13 @@ The following timeline outlines the key milestones achieved during our 1-week de
 
 - Allow users to utilize the platform as middleware for streaming to other platforms (e.g., YouTube, Twitch)
 - Explore the possibility of supporting multiple camera streams simultaneously, enabling unique streaming effects not achievable with a single camera
+
+### Product Showcase
+
+Here's a glimpse of what DreamStream can do:
+
+[![Homepage Screenshot](readme_images/homepage_screenshot.png)](https://www.thedreamstream.io/)
+
+**Stream Example**
+
+[![Stream Example Original](readme_images/stream_example_original.png)](https://www.thedreamstream.io/) → **Adjusts to the structure of people and movements in your video** → [![Stream Example Augmented](readme_images/stream_example_augmented.png)](https://www.thedreamstream.io/)
