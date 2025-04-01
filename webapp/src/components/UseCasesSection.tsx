@@ -17,8 +17,8 @@ export default function UseCasesSection() {
       title: "House Parties",
       description: "Create a unique visual experience for your guests with live artistic filters",
       icon: "🎉",
-      imageSrc: "/placeholders/watercolour.jpeg",
-      promptSuggestion: "A watercolor illustration",
+      imageSrc: "/use_cases/parties.webp",
+      promptSuggestion: "Disco space silhouettes with vibrant colours",
     },
     {
       title: "Bars & Clubs",
