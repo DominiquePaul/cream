@@ -217,6 +217,15 @@ const StyleConfigCard = ({
   isStreaming: boolean;
   isUpdating: boolean;
 }) => {
+  const [pendingStyle, setPendingStyle] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingStyle && customPrompt === pendingStyle) {
+      onUpdateStyle();
+      setPendingStyle(null);
+    }
+  }, [customPrompt, pendingStyle, onUpdateStyle]);
+
   // Predefined style examples with categories
   const styleExamples = [
     { category: "Art Styles", examples: [
@@ -225,8 +234,6 @@ const StyleConfigCard = ({
       "A Mucha art nouveau illustration",
       "A Monet-style impressionist painting",
       "A Van Gogh post-impressionist style",
-      "A Picasso cubist portrait",
-      "A Roy Lichtenstein pop art style"
     ]},
     { category: "Pop Culture", examples: [
       "A Sesame Street scene",
@@ -271,7 +278,7 @@ const StyleConfigCard = ({
         {isStreaming ? (
           <div className="space-y-4">
             {/* Current style display */}
-            <div className="p-3 bg-blue-50 rounded-md border border-blue-100">
+            <div className="p-2 bg-blue-50 rounded-md border border-blue-100">
               <div className="flex items-center mb-1">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -327,7 +334,7 @@ const StyleConfigCard = ({
               <div className="p-2 border-b border-slate-200">
                 <p className="text-xs font-medium text-slate-700">Style ideas (click to use):</p>
               </div>
-              <div className="p-2 space-y-3 max-h-48 overflow-y-auto">
+              <div className="p-2 space-y-3 max-h-64 overflow-y-auto">
                 {styleExamples.map((category, categoryIndex) => (
                   <div key={categoryIndex}>
                     <p className="text-xs font-medium text-indigo-600 mb-1.5">{category.category}</p>
@@ -336,7 +343,10 @@ const StyleConfigCard = ({
                         <div 
                           key={index}
                           className="cursor-pointer text-xs text-slate-700 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded transition-colors flex items-center"
-                          onClick={() => setCustomPrompt(example)}
+                          onClick={() => {
+                            setPendingStyle(example);
+                            setCustomPrompt(example);
+                          }}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-slate-400 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -507,7 +517,7 @@ export default function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const wsReadyStateRef = useRef<number>(WebSocket.CLOSED);
+  const [wsReadyState, setWsReadyState] = useState<number>(WebSocket.CLOSED);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Initializing camera...");
   const frameCounterRef = useRef(0);
@@ -857,7 +867,7 @@ export default function StreamPage() {
   // Modify the useEffect that tracks streaming duration
   useEffect(() => {
     // Only start duration tracking when both conditions are met AND WebSocket is connected
-    if (isStreaming && streamStartTime.current !== null && wsReadyStateRef.current === WebSocket.OPEN) {
+    if (isStreaming && streamStartTime.current !== null && wsReadyState === WebSocket.OPEN) {
       console.log("Starting duration timer with start time:", new Date(streamStartTime.current).toISOString());
       console.log(`Stream timer created at: ${Date.now()}, stream started at: ${streamStartTime.current}, diff: ${Date.now() - streamStartTime.current}ms`);
       
@@ -996,7 +1006,7 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, wsReadyStateRef.current, user?.id, refreshUser]);
+  }, [isStreaming, wsReadyState, user?.id, refreshUser, user]);
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(async () => {
@@ -1097,7 +1107,7 @@ export default function StreamPage() {
         clearInterval(stateInterval);
         
         // Update WebSocket readyState ref
-        wsReadyStateRef.current = WebSocket.OPEN;
+        setWsReadyState(WebSocket.OPEN);
         
         // Send a ping to test bi-directional communication
         try {
@@ -1156,7 +1166,7 @@ export default function StreamPage() {
       ws.onerror = (error) => {
         console.error("WebSocket error:", error);
         // Update WebSocket readyState ref
-        wsReadyStateRef.current = ws.readyState;
+        setWsReadyState(ws.readyState);
         
         // Don't immediately show errors during startup
         if (!isModalStarting) {
@@ -1181,7 +1191,7 @@ export default function StreamPage() {
         clearInterval(stateInterval);
         
         // Update WebSocket readyState ref
-        wsReadyStateRef.current = WebSocket.CLOSED;
+        setWsReadyState(WebSocket.CLOSED);
         
         // Only stop streaming if we were actively streaming
         if (isStreamingRef.current) {
@@ -1492,7 +1502,8 @@ export default function StreamPage() {
 
   // Function to update the style prompt
   const updateStylePrompt = () => {
-    if (!customPrompt || customPrompt.trim() === '') {
+    const trimmedPrompt = customPrompt?.trim();
+    if (!trimmedPrompt) {
       setError("Please enter a style prompt");
       return;
     }
@@ -1508,7 +1519,7 @@ export default function StreamPage() {
       
       wsRef.current.send(JSON.stringify({
         type: 'update_prompt',
-        prompt: customPrompt.trim()
+        prompt: trimmedPrompt
       }));
       
       // The actual update will be confirmed by the server
@@ -1668,6 +1679,13 @@ export default function StreamPage() {
     }
   };
 
+  // Update the WebSocket ready state when it changes
+  useEffect(() => {
+    if (wsRef.current) {
+      setWsReadyState(wsRef.current.readyState);
+    }
+  }, [wsRef.current?.readyState]);
+
   return (
     <>
       {isFullScreen && (
@@ -1794,6 +1812,7 @@ export default function StreamPage() {
                   className={`absolute inset-0 w-full h-full object-cover bg-black rounded-md ${
                     isStreaming && !showProcessedView ? 'block' : 'hidden'
                   }`}
+                  style={{ transform: 'scaleX(-1)' }}
                 />
                 
                 {/* Processed image view */}
