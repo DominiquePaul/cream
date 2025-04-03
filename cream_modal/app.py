@@ -1,16 +1,19 @@
-import asyncio
-from modal import Image, App, fastapi_endpoint, asgi_app, Secret
-import os
-import logging
-import time
-
 from src.utils.logger import logger
-from src.diffusion_processor import get_diffusion_processor, process_base64_frame
+
+with logger.span("import_time"):
+    import time
+
+with logger.span("import_asyncio"):
+    import asyncio
+
+with logger.span("import_modal"):
+    from modal import Image, App, fastapi_endpoint, asgi_app, Secret
+
+with logger.span("import_diffusion_processor"):
+    from src.diffusion_processor import get_diffusion_processor, process_base64_frame
 
 # Define default style prompt as a constant
 DEFAULT_STYLE_PROMPT = "A painting in the style of van Gogh's 'Starry Night'"
-
-app = App("dreamstream-livestream-processor")
 
 # Function to run during image building
 def build_initialize_models():
@@ -71,20 +74,6 @@ def build_initialize_models():
         # Re-raise to fail the build if initialization fails
         raise
 
-# IMPORTANT: Modal requires the run_function call to come BEFORE add_local_* methods
-ml_image = (Image
-            .debian_slim(python_version="3.12")
-            .run_commands(
-                "pip install --upgrade pip",
-            ) 
-            .poetry_install_from_file(
-                poetry_pyproject_toml="./pyproject.toml",
-                poetry_lockfile="./poetry.lock",
-                without=["dev"],
-            )
-            .run_function(build_initialize_models)
-            .add_local_python_source("_remote_module_non_scriptable")
-            .add_local_python_source("src"))
 
 # Global processors dictionary that will be populated during container startup
 global_processors = {}
@@ -101,11 +90,11 @@ def init_global_processors():
     logger.info("Initializing global image processors during container startup...")
     
     # Configuration for both processors
-    standard_processor_config = {
-        "use_controlnet": True,
-        "style_prompt": DEFAULT_STYLE_PROMPT,
-        "strength": 0.9
-    }
+    # standard_processor_config = {
+    #     "use_controlnet": True,
+    #     "style_prompt": DEFAULT_STYLE_PROMPT,
+    #     "strength": 0.9
+    # }
 
     lightning_processor_config = {
         "use_controlnet": True,
@@ -134,7 +123,29 @@ def init_global_processors():
     logger.info("Global processors initialized successfully")
     return global_processors
 
-init_global_processors()
+
+with logger.span("init_global_processors"):
+    init_global_processors()
+
+
+with logger.span("app_init"):
+    app = App("dreamstream-livestream-processor")
+
+    # IMPORTANT: Modal requires the run_function call to come BEFORE add_local_* methods
+    ml_image = (Image
+                .debian_slim(python_version="3.12")
+                .run_commands(
+                    "pip install --upgrade pip",
+                ) 
+                .poetry_install_from_file(
+                    poetry_pyproject_toml="./pyproject.toml",
+                    poetry_lockfile="./poetry.lock",
+                    without=["dev"],
+                )
+                .run_function(build_initialize_models)
+                .add_local_python_source("_remote_module_non_scriptable")
+                .add_local_python_source("src"))
+
 
 # Health check endpoint - no need for GPU
 @app.function(image=ml_image, allow_concurrent_inputs=50, secrets=[Secret.from_name("custom-secret"), Secret.from_name("huggingface")])
@@ -311,7 +322,7 @@ def websocket_server():
                                     })
                                     continue
                             
-                            # Check frame size (Modal has a 2MB limit on WebSocket messages)
+                              # Check frame size (Modal has a 2MB limit on WebSocket messages)
                             frame_size_mb = len(frame) / (1024 * 1024)
                             if frame_size_mb > 1.9:  # Leave some margin below 2MB
                                 logger.warning(f"Frame size too large: {frame_size_mb:.2f}MB, max allowed is 1.9MB")
