@@ -29,13 +29,16 @@ The following timeline outlines the key milestones achieved during our 1-week de
 
 - [ ] Implement real-time chat functionality for each stream
 - [ ] Display the number of viewers for each stream to streamers
+- [ ] Users can request style and streamer can accept/decline OR streamer can set auto-accept
+- [ ] Streamers can set a theme, e.g. "90s TV shows" and set the prompt to change every 120 seconds. 
+- [ ] Streamers can export all frames/timelapse of all frames after download
+- [ ] Better SEO
 
 ### Future Development Ideas
 
-- Enable live streaming from raspberry pi devices
+- Develop an admin dashboard for seeing usage stats
 - Introduce audio streaming capabilities
-- Store input and output images from streams for potential timelapse creation
-- Develop an admin dashboard for managing the platform
+- Enable live streaming from raspberry pi devices
 
 ### Long-term Vision
 
@@ -47,3 +50,8 @@ The following timeline outlines the key milestones achieved during our 1-week de
 Here's a glimpse of what DreamStream can do:
 
 [![Stream Example Original](readme_images/stream_example_original.png)](https://www.thedreamstream.io/) → **Adjusts to the structure of people and movements in your video** → [![Stream Example Augmented](readme_images/stream_example_augmented.png)](https://www.thedreamstream.io/)
+
+
+
+Collection of things I want to take a closer look at to improve the model speed
+- https://github.com/chengzeyi/stable-fast
