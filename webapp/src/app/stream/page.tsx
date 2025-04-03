@@ -220,22 +220,38 @@ const StyleConfigCard = ({
   // Predefined style examples with categories
   const styleExamples = [
     { category: "Art Styles", examples: [
+      "A Dali surrealist dreamscape",
+      "A Klimt art nouveau masterpiece",
+      "A Mucha art nouveau illustration",
       "A Monet-style impressionist painting",
       "A Van Gogh post-impressionist style",
       "A Picasso cubist portrait",
-      "A Dali surrealist dreamscape"
+      "A Roy Lichtenstein pop art style"
+    ]},
+    { category: "Pop Culture", examples: [
+      "A Sesame Street scene",
+      "Daft Punk futuristic aesthetic",
+      "The Beatles meets the Spice Girls",
+      "Austin Powers",
+      "Mr. Bean",
+      "The Muppets",
+      "Michael Jackson"
     ]},
     { category: "Themes", examples: [
+      "Disco spacey silhouettes in vibrant colors",
       "A dystopian yet colorful future",
       "A peaceful forest scene with magical elements",
       "An underwater coral reef fantasy",
-      "A space exploration scene with nebulas"
+      "A space exploration scene with nebulas",
+      "Underwater dreamscape",
+      "Woodstock psychedelic festival",
     ]},
     { category: "Visual Styles", examples: [
       "A Ghibli style anime scene",
       "A watercolor illustration",
       "A pixel art retro game style",
-      "A neon cyberpunk aesthetic"
+      "A neon cyberpunk aesthetic",
+      "Pixar animated movie style"
     ]}
   ];
 
@@ -276,6 +292,11 @@ const StyleConfigCard = ({
                   type="text"
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isUpdating && customPrompt) {
+                      onUpdateStyle();
+                    }
+                  }}
                   placeholder="Describe the style you want..."
                   className="flex-grow px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
                   disabled={isUpdating}
@@ -482,7 +503,7 @@ const CreditPurchaseButton = () => {
 };
 
 export default function StreamPage() {
-  const { user, isAdmin, refreshUser } = useAuth();
+  const { user, isAdmin, refreshUser, isLoading } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -500,12 +521,17 @@ export default function StreamPage() {
   
   // Add authentication check
   useEffect(() => {
+    if (isLoading) {
+      setStatus("Loading...");
+      return;
+    }
+    
     if (!user) {
       setError("You must be logged in to stream");
       setStatus("Authentication required");
       return;
     }
-  }, [user]);
+  }, [user, isLoading]);
   
   // Image display states (adopting from watch page)
   const [imageData, setImageData] = useState<string | null>(null); // Current displayed image
@@ -844,6 +870,7 @@ export default function StreamPage() {
       
       let lastDeductedMinute = 0; // Track when we last deducted credits
       let lastDeductionTime = 0; // Track the timestamp of the last deduction
+      let isDeductionInProgress = false; // Track if a deduction is currently happening
       
       // Create a unique ID for this timer instance to prevent stale timers from deducting
       const timerInstanceId = Date.now();
@@ -871,26 +898,31 @@ export default function StreamPage() {
         
         // Real-time credit deductions - every whole minute
         const currentWholeMinute = Math.floor(durationMinutes);
-        const minimumDeductionInterval = 55 * 1000; // 55 seconds minimum between deductions
+        const minimumDeductionInterval = 55 * 1000;
         
         // Only deduct if we've advanced to a new minute AND enough time has passed since last deduction
-        // Also check we're not in the middle of a refresh
+        // AND no deduction is currently in progress
         if (currentWholeMinute > lastDeductedMinute && 
             sessionId.current && 
             (now - lastDeductionTime > minimumDeductionInterval) &&
-            !isRefreshingRef.current) {
-          // Calculate credits to deduct for this minute
-          const creditsToDeduct = 0.2; // 0.2 credits per minute
-          lastDeductedMinute = currentWholeMinute;
-          lastDeductionTime = now;
+            !isRefreshingRef.current &&
+            !isDeductionInProgress) {
           
-          console.log(`-----------------------------------`);
-          console.log(`Timer ${timerInstanceId} - DEDUCTING CREDITS - MINUTE ${currentWholeMinute}`);
-          console.log(`Timer ${timerInstanceId} - Processing credit deduction: ${creditsToDeduct} credits`);
-          console.log(`Timer ${timerInstanceId} - Timing check: durationMs=${durationMs}, durationMinutes=${durationMinutes.toFixed(4)}`);
-          console.log(`Timer ${timerInstanceId} - Last deducted minute: ${lastDeductedMinute}, time since last deduction: ${(now - lastDeductionTime)/1000}s`);
+          // Set deduction in progress flag
+          isDeductionInProgress = true;
           
           try {
+            // Calculate credits to deduct for this minute
+            const creditsToDeduct = 0.2; // 0.2 credits per minute
+            lastDeductedMinute = currentWholeMinute;
+            lastDeductionTime = now;
+            
+            console.log(`-----------------------------------`);
+            console.log(`Timer ${timerInstanceId} - DEDUCTING CREDITS - MINUTE ${currentWholeMinute}`);
+            console.log(`Timer ${timerInstanceId} - Processing credit deduction: ${creditsToDeduct} credits`);
+            console.log(`Timer ${timerInstanceId} - Timing check: durationMs=${durationMs}, durationMinutes=${durationMinutes.toFixed(4)}`);
+            console.log(`Timer ${timerInstanceId} - Last deducted minute: ${lastDeductedMinute}, time since last deduction: ${(now - lastDeductionTime)/1000}s`);
+            
             // First, get current credits to calculate new value
             const { data: profileData, error: profileError } = await supabase
               .from('profiles')
@@ -944,6 +976,9 @@ export default function StreamPage() {
           } catch (err) {
             console.error(`Timer ${timerInstanceId} - Error processing minute credit deduction:`, err);
             isRefreshingRef.current = false;
+          } finally {
+            // Always reset the deduction in progress flag
+            isDeductionInProgress = false;
           }
         }
       }, 1000);
@@ -961,7 +996,7 @@ export default function StreamPage() {
         durationTimerRef.current = null;
       }
     };
-  }, [isStreaming, user?.id, refreshUser, user]); // Added user to dependencies
+  }, [isStreaming, wsReadyStateRef.current, user?.id, refreshUser]);
 
   // Define a function to establish the WebSocket connection
   const establishWebSocketConnection = useCallback(async () => {
